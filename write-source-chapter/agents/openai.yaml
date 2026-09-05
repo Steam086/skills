@@ -1,0 +1,4 @@
+interface:
+  display_name: "源码教材章节写作"
+  short_description: "基于仓库源码证据编写中文技术教材章节和架构深度解析"
+  default_prompt: "Use $write-source-chapter to write a Chinese source-grounded technical chapter from this repository."

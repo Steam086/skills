@@ -1,0 +1,7 @@
+interface:
+  display_name: "Paper Report"
+  short_description: "将论文汇报大纲制作成 Paper Report 风格的可编辑幻灯片和 PDF"
+  icon_large: "./assets/preview.png"
+  default_prompt: "使用 $artifact-template-paper-report 将这份已审大纲制作成 Paper Report 风格的英文 PPTX，保留完整中文备注并导出 PDF。"
+policy:
+  allow_implicit_invocation: true

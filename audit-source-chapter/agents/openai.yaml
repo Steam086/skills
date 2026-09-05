@@ -1,0 +1,4 @@
+interface:
+  display_name: "Audit Source Chapter"
+  short_description: "Audit technical chapters against repository evidence"
+  default_prompt: "Use $audit-source-chapter to audit this draft against its repository sources and report issues without editing it."

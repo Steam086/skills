@@ -1,0 +1,6 @@
+interface:
+  display_name: "论文到组会汇报"
+  short_description: "阅读论文 PDF，核对证据并生成大纲，接续制作同风格 PPTX 与 PDF"
+  default_prompt: "使用 $paper-to-report 将这篇论文 PDF 制作为约 30 分钟的组会汇报，英文页面、中文讲稿，沿用 Paper Report 风格，交付 PPTX 和 PDF。"
+policy:
+  allow_implicit_invocation: true

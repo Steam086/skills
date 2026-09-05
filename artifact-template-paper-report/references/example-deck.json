@@ -1,0 +1,255 @@
+{
+  "schema": "paper-report-v1",
+  "meta": {
+    "title": "Paper Report workflow sample",
+    "audience": "Research group",
+    "slide_language": "en-US",
+    "notes_language": "zh-CN",
+    "target_minutes": 8
+  },
+  "sources": [
+    {
+      "id": "workflow",
+      "title": "Paper Report handoff protocol",
+      "type": "bundled public specification",
+      "version": "v1",
+      "collected": "2026-09-05",
+      "scope": "Synthetic workflow and layout demonstration; no research result",
+      "file": "outline-contract.md",
+      "sha256": "286c002c4ce1be661762b7934cca81db3bb3168a8f434586324f219fd1fd3cda"
+    }
+  ],
+  "assets": [
+    {
+      "id": "process",
+      "file": "../assets/example-process.png",
+      "sha256": "8d1ee962ecd446bd216e5448ed3add16a4f50b2e09804f8efc559446788bf5b9",
+      "source": "workflow",
+      "locator": "Bundled synthetic process diagram"
+    },
+    {
+      "id": "trend",
+      "file": "../assets/example-line-chart.png",
+      "sha256": "5c0d5cdef6132e9a91a34255320e29c9a4b797b6e5f74b84042d39bd4390d8ed",
+      "source": "workflow",
+      "locator": "Bundled synthetic line chart"
+    },
+    {
+      "id": "comparison-chart",
+      "file": "../assets/example-bar-chart.png",
+      "sha256": "5bdd55df15a9d1a9af60aefb43e2d2e2b0cb25d2f6f103ebf3bac028a1b2b849",
+      "source": "workflow",
+      "locator": "Bundled synthetic bar chart"
+    }
+  ],
+  "slides": [
+    {
+      "id": "cover",
+      "layout": "cover",
+      "title": "Paper Report",
+      "section": "PUBLIC TEMPLATE",
+      "purpose": "展示不绑定特定论文的公开汇报模板入口",
+      "seconds": 60,
+      "optional": false,
+      "takeaway": "",
+      "footer": "Paper Report | Synthetic public example",
+      "notes": "这是公开模板的封面示例。全部文字和图形均为合成教学内容，不对应任何论文、机构或个人。实际使用时应完全替换为当前论文的信息。",
+      "evidence": [
+        {
+          "source": "workflow",
+          "locator": "outline-contract.md: cover layout",
+          "kind": "teaching",
+          "claim": "展示不绑定特定论文的公开汇报模板入口",
+          "limits": "Layout demonstration only"
+        }
+      ],
+      "subtitle": "A reusable workflow for evidence-backed paper discussions",
+      "authors": "Synthetic public example",
+      "items": [
+        {"heading": "Read", "text": "Paper and evidence"},
+        {"heading": "Write", "text": "Outline and notes"},
+        {"heading": "Render", "text": "PPTX and PDF"}
+      ]
+    },
+    {
+      "id": "section",
+      "layout": "section",
+      "title": "From Evidence to Slides",
+      "section": "WORKFLOW",
+      "purpose": "分开内容审校和视觉渲染",
+      "seconds": 60,
+      "optional": false,
+      "takeaway": "",
+      "footer": "Paper Report | Synthetic public example",
+      "notes": "章节页展示报告如何分段。这里强调内容审校和视觉渲染是两个阶段，但都由同一个 deck.json 连接。",
+      "evidence": [
+        {
+          "source": "workflow",
+          "locator": "outline-contract.md: content source and outputs",
+          "kind": "teaching",
+          "claim": "分开内容审校和视觉渲染",
+          "limits": "Workflow explanation"
+        }
+      ],
+      "subtitle": "Review the claims first; render the approved content second."
+    },
+    {
+      "id": "bullets",
+      "layout": "bullets",
+      "title": "One Content Source",
+      "section": "WORKFLOW",
+      "purpose": "同一内容源保持页面、备注和证据一致",
+      "seconds": 60,
+      "optional": false,
+      "takeaway": "One source keeps slides, notes and evidence aligned.",
+      "footer": "Paper Report | Synthetic public example",
+      "notes": "要点页展示三个并列信息层次。实际报告中每页应只回答一个主要问题，完整解释放在备注中。",
+      "evidence": [
+        {
+          "source": "workflow",
+          "locator": "outline-contract.md: deck.json and generated views",
+          "kind": "teaching",
+          "claim": "同一内容源保持页面、备注和证据一致",
+          "limits": "Workflow explanation"
+        }
+      ],
+      "items": [
+        {"heading": "Visible content", "text": "Titles, explanations, figures and takeaways"},
+        {"heading": "Speaker notes", "text": "Definitions, limitations and transitions"},
+        {"heading": "Evidence", "text": "Source locations, conditions and file hashes"}
+      ]
+    },
+    {
+      "id": "comparison",
+      "layout": "comparison",
+      "title": "Two Responsibilities",
+      "section": "WORKFLOW",
+      "purpose": "说明阅读与渲染阶段的不同职责",
+      "seconds": 60,
+      "optional": false,
+      "takeaway": "Approve the reasoning before polishing the layout.",
+      "footer": "Paper Report | Synthetic public example",
+      "notes": "比较页适合呈现两个并列职责。左侧负责理解论文和核验主张，右侧负责生成可编辑页面并完成视觉检查。",
+      "evidence": [
+        {
+          "source": "workflow",
+          "locator": "outline-contract.md: handoff boundary",
+          "kind": "teaching",
+          "claim": "说明阅读与渲染阶段的不同职责",
+          "limits": "Workflow explanation"
+        }
+      ],
+      "items": [
+        {"heading": "Paper to outline", "text": "Read the paper, verify claims and write the presentation content."},
+        {"heading": "Outline to slides", "text": "Build editable objects, render every page and review the exact candidate."}
+      ]
+    },
+    {
+      "id": "figure",
+      "layout": "figure",
+      "title": "Explain a Figure",
+      "section": "EVIDENCE",
+      "purpose": "展示单图版式及证据边界",
+      "seconds": 60,
+      "optional": false,
+      "takeaway": "A figure supports only the claim and conditions stated beside it.",
+      "footer": "Synthetic diagram | Layout demonstration only",
+      "notes": "这是单图版式示例。合成图只演示版面和读图顺序，不代表任何论文机制或测量结果。",
+      "evidence": [
+        {
+          "source": "workflow",
+          "locator": "Bundled synthetic process diagram",
+          "kind": "teaching",
+          "claim": "展示单图版式及证据边界",
+          "limits": "Synthetic image; no scientific claim"
+        }
+      ],
+      "figures": ["process"],
+      "caption": "Synthetic process diagram for layout demonstration only.",
+      "items": [
+        {"heading": "Show the source", "text": "Preserve labels and proportions when using a real paper figure."},
+        {"heading": "State the limit", "text": "Keep experimental conditions visible and specific."}
+      ]
+    },
+    {
+      "id": "two-figures",
+      "layout": "two-figures",
+      "title": "Compare Without Conflating",
+      "section": "EVIDENCE",
+      "purpose": "展示两图版式并区分不同图的角色",
+      "seconds": 60,
+      "optional": false,
+      "takeaway": "Read each chart under its own stated assumptions.",
+      "footer": "Synthetic charts | Layout demonstration only",
+      "notes": "两张合成图分别展示趋势和分组比较。它们没有共同实验条件，不能组合成论文结论。",
+      "evidence": [
+        {
+          "source": "workflow",
+          "locator": "Bundled synthetic line and bar charts",
+          "kind": "teaching",
+          "claim": "展示两图版式并区分不同图的角色",
+          "limits": "Synthetic charts; no scientific claim"
+        }
+      ],
+      "figures": ["trend", "comparison-chart"],
+      "items": [
+        {"heading": "Trend", "text": "Describe axes, conditions and comparable points."},
+        {"heading": "Comparison", "text": "Keep groups, units and baselines explicit."}
+      ],
+      "caption": "All values are synthetic and exist only to demonstrate the layout."
+    },
+    {
+      "id": "table",
+      "layout": "table",
+      "title": "An Editable Table",
+      "section": "LAYOUT",
+      "purpose": "展示可编辑的原生表格",
+      "seconds": 60,
+      "optional": false,
+      "takeaway": "Tables remain native, editable slide objects.",
+      "footer": "Paper Report | Synthetic public example",
+      "notes": "表格中的时间预算完全是教学示例，不来自实验。真实报告应保留指标、单位和比较条件。",
+      "evidence": [
+        {
+          "source": "workflow",
+          "locator": "outline-contract.md: table layout",
+          "kind": "teaching",
+          "claim": "展示可编辑的原生表格",
+          "limits": "Illustrative values only"
+        }
+      ],
+      "columns": ["Illustrative route", "Reading", "Discussion"],
+      "rows": [
+        ["Short", "10 min", "5 min"],
+        ["Long", "20 min", "10 min"]
+      ],
+      "caption": "Illustrative time budgets; not measured research results."
+    },
+    {
+      "id": "flow",
+      "layout": "flow",
+      "title": "Review Before Delivery",
+      "section": "DELIVERY",
+      "purpose": "展示交付前的检查顺序",
+      "seconds": 60,
+      "optional": false,
+      "takeaway": "Deliver the exact candidate that passed review.",
+      "footer": "Paper Report | Synthetic public example",
+      "notes": "流程页展示结构校验、渲染和人工视觉检查的先后关系。正式交付物必须来自已经检查的同一轮候选文件。",
+      "evidence": [
+        {
+          "source": "workflow",
+          "locator": "outline-contract.md: build and delivery outputs",
+          "kind": "teaching",
+          "claim": "展示交付前的检查顺序",
+          "limits": "Workflow explanation"
+        }
+      ],
+      "items": [
+        {"heading": "Validate", "text": "Check content, notes and source assets."},
+        {"heading": "Render", "text": "Convert the candidate to PDF and page images."},
+        {"heading": "Review", "text": "Inspect every slide and revise the shared content source."}
+      ]
+    }
+  ]
+}

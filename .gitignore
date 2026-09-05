@@ -1,0 +1,22 @@
+# Local agent configuration
+.agents/
+.codex/
+
+# Python environments and caches
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Dependencies and local secrets
+node_modules/
+.env
+.env.*
+!.env.example
+
+# OS metadata
+.DS_Store
+Thumbs.db

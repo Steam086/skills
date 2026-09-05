@@ -1,0 +1,4 @@
+interface:
+  display_name: "Plan Source Book"
+  short_description: "Plan source-grounded multi-chapter technical books"
+  default_prompt: "Use $plan-source-book to create an evidence-backed plan for a multi-chapter technical guide to this repository."

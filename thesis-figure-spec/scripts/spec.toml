@@ -1,0 +1,116 @@
+# Default machine source for palette, fonts, visibility, and density caps used by:
+#   - drawing-rules.md (human-readable spec)
+#   - lint_drawio_geometry.py (automatic checker)
+#
+# Edit this file to change the default spec. For task-specific overrides, copy
+# it to a temporary path, edit that copy, and pass it to the linter with --spec.
+# Update drawing-rules.md tables when changing defaults.
+
+[palette]
+# §1 fill / stroke pairs. Order matches the table in drawing-rules.md §1, which
+# documents each role; fills[i] pairs with strokes[i] by index.
+fills = [
+    "#D8ECFF",
+    "#FFE9A8",
+    "#DDF4C8",
+    "#E3F6D8",
+    "#D9F2F8",
+    "#F0F0F0",  # gray; auxiliary annotation, not a core module
+    "#FFDAD4",
+    "#E9DFFF",
+    "#DDE3EA",  # slate; physical device / accelerator (role 9)
+]
+strokes = [
+    "#2F78C4",
+    "#C28A00",
+    "#4F9A2F",
+    "#5C9B45",
+    "#3A8DA8",
+    "#707070",
+    "#C8584B",
+    "#7962B8",
+    "#566D80",  # role 9 device slate, pairs with #DDE3EA
+]
+# Gray fill that marks "auxiliary annotation / background block" rather than a
+# core colored module. Lint excludes this from the core-module count.
+auxiliary_fill = "#F0F0F0"
+# Auxiliary stroke / annotation gray. The only palette stroke color also
+# permitted as fontColor (for arrow labels, anchors, secondary annotations).
+auxiliary_text_gray = "#707070"
+
+[palette.font_colors]
+# fontColor values allowed on any visible text. Black is the default; the
+# auxiliary gray (#707070) is the ONLY palette stroke that may double as a
+# text color — every other fill / stroke is forbidden as fontColor.
+visible_text = ["#000000", "#707070"]
+
+[palette.neutrals]
+# Black / white / transparent. Allowed for text, canvas, and white-backed
+# callouts. They do NOT count toward the "primary color" budget.
+allowed = ["#000000", "#FFFFFF"]
+# Neutral colors allowed specifically as fillColor values.
+fill_allowed = ["#FFFFFF"]
+
+[fonts]
+# §5 whitelist. CJK -> Source Han Serif SC / SimSun family;
+# pure-Latin / digit / math -> Times New Roman / CMU Serif family.
+cjk = [
+    "Source Han Serif SC",
+    "思源宋体",
+    "SimSun",
+    "宋体",
+    "STSong",
+    "华文宋体",
+    "SimHei",
+    "黑体",
+]
+latin = [
+    "Times New Roman",
+    "CMU Serif",
+    "Computer Modern",
+    "LM Math",
+    "Latin Modern Math",
+]
+# §5 banned list. Any of these in a `fontFamily=` style is a hard error.
+banned = [
+    "Helvetica",
+    "Arial",
+    "Calibri",
+    "Verdana",
+    "Tahoma",
+    "Microsoft YaHei",
+    "微软雅黑",
+    "sans-serif",
+    "Noto Sans CJK SC",
+    "Noto Sans",
+]
+
+[canvas]
+# Output-neutral default: if a draw.io file does not declare page dimensions,
+# lint treats it as a 16:9 canvas.
+default_width  = 1200
+default_height = 675
+max_width      = 1600
+max_height     = 900
+min_aspect     = 1.25
+max_aspect     = 2.40
+
+[visibility]
+# Lint checks draw.io fontSize directly. Final consumers may scale the figure,
+# but shrinking below min_scale violates the visibility rule.
+min_font_size      = 14
+min_aux_font_size  = 12
+min_core_font_size = 16
+min_scale          = 0.85
+
+[density]
+# Global information-density budget. Warnings identify figures that should be
+# simplified; error limits block unreadably crowded figures.
+text_warn       = 320
+text_error      = 420
+module_warn     = 24
+module_error    = 30
+edge_warn       = 32
+edge_error      = 40
+core_label_units = 16
+max_core_label_lines = 2
