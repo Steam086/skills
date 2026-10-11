@@ -1,0 +1,15 @@
+# Project-local index. Review before explicitly granting QMD trust.
+collections:
+  pi-memory:
+    path: ./.pi/memory
+    pattern: "**/*.md"
+    ignore:
+      - "recovery/**"
+    includeByDefault: true
+    context:
+      "/": "Project memory: technical decisions and code navigation. Questions may be Chinese; preserve English symbols and paths."
+      "/daily": "Daily project work logs"
+models:
+  embed: hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf
+  generate: hf:tobil/qmd-query-expansion-1.7B-gguf/qmd-query-expansion-1.7B-q4_k_m.gguf
+  rerank: hf:ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/qwen3-reranker-0.6b-q8_0.gguf

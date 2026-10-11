@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+PACKAGE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+environment_shell="$(node "$PACKAGE/memory-env.cjs" --shell)" || exit $?
+eval "$environment_shell"
+cd "$PI_MEMORY_PROJECT_ROOT"
+for arg in "$@"; do
+  case "$arg" in --index|--index=*|--config|--config=*) echo 'Index/config overrides are not allowed.' >&2; exit 2;; esac
+done
+case "${1:-}" in
+  service)
+    if [[ "${2:-status}" == start ]]; then
+      node "$PACKAGE/check-memory-config.mjs" --require-trust --models=embed
+    fi
+    exec node "$PACKAGE/qmd-service-client.mjs" "$@" ;;
+  vsearch|vector-search|embed|query|deep-search|update)
+    models=embed
+    case "$1" in query|deep-search) models=embed,rerank,generate;; update) models=;; esac
+    node "$PACKAGE/check-memory-config.mjs" --require-trust "--models=$models"
+    exec node "$PACKAGE/qmd-service-client.mjs" "$@" ;;
+  search|status|trust)
+    node "$PACKAGE/check-memory-config.mjs"
+    exec "$PACKAGE/node_modules/.bin/qmd" "$@" ;;
+  collection)
+    [[ "${2:-}" == list ]] || { echo 'Use explicit setup for project configuration.' >&2; exit 2; }
+    node "$PACKAGE/check-memory-config.mjs"
+    exec "$PACKAGE/node_modules/.bin/qmd" "$@" ;;
+  *) echo 'Supported: search, vsearch, query, update, embed, status, collection list, trust, service.' >&2; exit 2 ;;
+esac

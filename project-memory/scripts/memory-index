@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+PACKAGE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+"$PACKAGE/scripts/qmd-memory" update
+# The project SDK host reuses its GPU model; retain default 64-doc / 64-MiB batches.
+case "${1:-incremental}" in
+  incremental) "$PACKAGE/scripts/qmd-memory" embed ;;
+  rebuild) "$PACKAGE/scripts/qmd-memory" embed -f ;;
+  *) echo 'Usage: scripts/memory-index [incremental|rebuild]' >&2; exit 2 ;;
+esac

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+PACKAGE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+environment_shell="$(node "$PACKAGE/memory-env.cjs" --shell)" || exit $?
+eval "$environment_shell"
+cd "$PI_MEMORY_PROJECT_ROOT"
+node "$PACKAGE/check-memory-config.mjs" --require-trust --models=embed
+exec pi -e "$PACKAGE" "$@"

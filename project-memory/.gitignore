@@ -1,0 +1,6 @@
+# Dependencies and consumer runtime state must not be published.
+/node_modules/
+/.pi/memory/
+/.pi/cache/
+/.pi/qmd-state/
+/.qmd/index.sqlite*
