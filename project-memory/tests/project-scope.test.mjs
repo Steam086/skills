@@ -71,13 +71,14 @@ test('setup rejects differing config and symlinked state without overwrite', () 
   assert.notEqual(wrongRoot.status, 0);
   assert.match(wrongRoot.stderr, /consumer project/);
 }));
-test('actual Pi SDK explicitly loads package and memory_write stays in projects A/B', () => withProjects((a, b) => {
+test('actual Pi SDK loads routing policy and scoped memory tools in projects A/B', () => withProjects((a, b) => {
   assert.ok(fs.existsSync(host), 'Install the Pi host or set PI_MEMORY_TEST_HOST to its dist/index.js');
   for (const [root, marker] of [[a, 'PROJECT_A_ONLY'], [b, 'PROJECT_B_ONLY']]) {
     assert.equal(run(root, 'scripts/memory-setup.mjs').status, 0);
     const result = run(root, 'tests/sdk-probe.mjs', [], { PI_MEMORY_TEST_HOST: host, PI_MEMORY_TEST_PACKAGE: pkg, PI_MEMORY_TEST_MARKER: marker });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(JSON.parse(result.stdout).memoryWrite, true);
+    assert.equal(JSON.parse(result.stdout).routingPolicyContract, true);
     assert.equal(fs.existsSync(path.join(root, '.pi/qmd-state/service.json')), false);
     assert.equal(fs.existsSync(path.join(root, '.pi/qmd-state/trusted.json')), false);
   }

@@ -8,18 +8,31 @@ Linux/Unix with Node.js >=22.19, npm, Bash, `flock`, and an installed Pi host co
 
 ## Install and initialize
 
-Review the package first. Set `PACKAGE` to its absolute directory and run:
+Update the shared Git checkout **before** installing into a consumer. On this machine the collection lives at `$HOME/skills`; on another machine clone it first. Review the package and incoming changes before execution:
 
 ```bash
+# First time only (if the checkout does not exist):
+# git clone git@github.com:Steam086/skills.git "$HOME/skills"
+git -C "$HOME/skills" pull --ff-only
+PACKAGE="$HOME/skills/project-memory"
 "$PACKAGE/scripts/memory-install"
-cd /path/to/your/project
+
+# Repeat for each consumer project; never run setup in the shared package.
+cd /absolute/path/to/your/project
 node "$PACKAGE/scripts/memory-setup.mjs"
-pi -e "$PACKAGE"
+pi install --local "$PACKAGE"
+pi  # review/approve Pi project trust yourself if prompted
 ```
+
+This uses Pi's standard **local package** mechanism: the consumer's `.pi/settings.json` points to the shared package, whose manifest loads both `extensions/project-memory.ts` and `SKILL.md`. Do not copy the NCCL `.pi` directory, install only the skill, or enable upstream `pi-memory` directly. Local-path installs reuse this checkout and its dependencies; updates to it affect every consumer on its next Pi launch/reload. They are not pinned per consumer. Review updates and rerun the locked dependency installer after pulling.
+
+The collection is a multi-skill repository, not a root-level Pi package. Do not use `pi install git:github.com/Steam086/skills` as if it selected this subdirectory. Clone/update the collection, then install its `project-memory` directory as above. For a one-off explicit load without persistent settings use `pi -e "$PACKAGE"`.
 
 The explicit setup creates empty project directories, `.qmd/index.yml`, and local `.pi/.gitignore` / `.qmd/.gitignore` protections. It preflights config and ignore-file safety before changes, preserves existing ignore rules and appends private-runtime rules last (idempotently). It refuses differing existing config and symlinked state, leaves existing memory unchanged, and does not grant trust, start services, edit the repository root `.gitignore`, or edit Pi settings. Run from the project root, not from the shared package or a subdirectory. `PI_MEMORY_PROJECT_ROOT` can explicitly select an absolute consumer root for scripts; the Pi session's `cwd` must match it.
 
-For a persistent project installation, after review use Pi's documented local package mechanism: `pi install --local "$PACKAGE"`. Pi may ask for project trust separately. Do not directly autoload the upstream pi-memory dependency. For controlled local dependency installation use the bundled installer, which skips lifecycle scripts and automatic peer installation. Pi-managed git/npm installs use Pi's normal dependency installation behavior instead.
+Setup and package registration do not grant Pi or QMD trust. The local package command preserves other Pi settings and does not copy code or install dependencies; the bundled installer installs the lockfile separately, skipping lifecycle scripts and automatic peer installation. No global Pi settings are changed. Avoid installing the package globally: opt each consumer in explicitly. Pi-managed git/npm installs use Pi's normal dependency installation behavior instead.
+
+For existing projects, do not layer this over an active project-local memory bootstrap or legacy `repo-memory` skill. Review and migrate conflicting implementations manually first; the standalone setup only validates its own state/config paths and is not the old NCCL `memory-deploy` migration tool.
 
 ## Models and trust
 
@@ -35,7 +48,9 @@ No retrieval path automatically provisions missing models. Review `.qmd/index.ym
 
 ## Operation
 
-Use Pi's `memory_write`, `memory_read`, `memory_search`, `memory_forget`, `memory_restore`, `memory_status`, and `scratchpad` tools. The skill describes when to use each. Session startup attempts embedding warmup only after trust and cached-weight checks; without them it reports a warning and Markdown tools remain usable.
+Use Pi's `memory_write`, `memory_read`, `memory_search`, `memory_forget`, `memory_restore`, `memory_status`, and `scratchpad` tools. The skill describes when to use each. The skill and the plugin's final prompt policy default to no memory-tool calls when current context/source suffices. Retrieve missing prior-project context or explicitly requested records; persist only with clear user intent. Read and write opt-outs are independent. Loading the skill grants no permission, and ordinary task completion is not an automatic save trigger. This is model routing, not enforcement of plugin lifecycle hooks: snapshots, warmup, and compaction handoffs can still run automatically. A natural-language opt-out does not disable those hooks or remove an injected snapshot.
+
+Session startup attempts embedding warmup only after trust and cached-weight checks; without them it reports a warning and Markdown tools remain usable. Plain `pi` uses the registered package after project trust; `scripts/pi-memory` is the stricter launcher that requires trusted config and cached embeddings.
 
 ```bash
 "$PACKAGE/scripts/qmd-memory" service status
@@ -60,4 +75,4 @@ npm test --prefix "$PACKAGE"
 PI_MEMORY_TEST_HOST=/path/to/pi-coding-agent/dist/index.js npm test --prefix "$PACKAGE"
 ```
 
-Tests own and remove temporary projects, explicitly load the package using the actual Pi SDK, register the real upstream tools, execute `memory_write`, and check A/B separation and safe startup failure. They also cover failing shell environment validation with a no-network `hf` stub, ordinary Git staging protection, and missing-embedding diagnostics through a fake Unix socket and the real client. They do not grant trust, download models, or start GPU services. GPU search, live socket authorization, and full idle-expiry behavior require a separate approved hardware test; source-project results are not package validation.
+Tests own and remove temporary projects, explicitly load the package using the actual Pi SDK, register the real upstream tools, execute `memory_write`, and check A/B separation and safe startup failure. They also cover the advertised skill metadata and final appended routing policy (including byte-stable delivery across positive, negated, and quoted prompts), failing shell environment validation with a no-network `hf` stub, ordinary Git staging protection, and missing-embedding diagnostics through a fake Unix socket and the real client. Prompt-contract checks validate loading and contents, not whether an LLM follows the policy. They do not grant trust, download models, or start GPU services. GPU search, live socket authorization, and full idle-expiry behavior require a separate approved hardware test; source-project results are not package validation.
