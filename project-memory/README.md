@@ -8,6 +8,8 @@ Linux/Unix with Node.js >=22.19, npm, Bash, `flock`, and an installed Pi host co
 
 ## Install and initialize
 
+For an explicit-only, globally available installation assistant, see the sibling [project-memory-init skill](../project-memory-init/README.md). Install that entry point globally, not this runtime; it guides per-project setup, separate trust approvals, and verified local-model reuse without automatically updating the shared checkout.
+
 Update the shared Git checkout **before** installing into a consumer. On this machine the collection lives at `$HOME/skills`; on another machine clone it first. Review the package and incoming changes before execution:
 
 ```bash
