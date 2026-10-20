@@ -4,7 +4,7 @@ A standalone Pi package and skill for project-local Markdown memory and QMD retr
 
 ## Requirements
 
-Linux/Unix with Node.js >=22.19, npm, Bash, `flock`, and an installed Pi host compatible with pi-memory (>=0.81.1). GPU retrieval uses CUDA; provide your own compatible driver/libraries through standard system discovery or your launch environment. This package does not install CUDA or change driver/global settings. GPU/platform compatibility has not been verified for this package.
+Linux/Unix with Node.js >=22.19, npm, Bash, `flock`, and an installed Pi host compatible with pi-memory (>=0.81.1). GPU retrieval requires a compatible NVIDIA driver and CUDA libraries. The installer detects existing CUDA 12/13 toolkits (`CUDA_HOME`, `CUDA_PATH`, `/usr/local/cuda*`, `/opt/cuda`, `/data/local/cuda*`) and maps their runtime SONAMEs into the Git-ignored package `runtime/cuda/` directory. Plain Pi and CLI children inherit that loader path automatically, without fish/Bash profile edits. This does not install CUDA or change drivers/global loader settings. GPU compatibility still depends on the host and has not been established for every toolkit/platform.
 
 ## Install and initialize
 
@@ -61,6 +61,20 @@ PI_MEMORY_MODEL_IDLE_MINUTES=60 "$PACKAGE/scripts/pi-memory"
 "$PACKAGE/scripts/memory-index" rebuild
 ```
 
+### CUDA startup failures
+
+If a previously started service fell back to CPU, adding libraries to a new shell cannot change that running process. Configure the existing toolkit and restart **that project's** service:
+
+```bash
+node "$PACKAGE/scripts/memory-cuda.mjs"
+# For an unrecognized installation instead:
+# node "$PACKAGE/scripts/memory-cuda.mjs" --lib-dir /absolute/path/to/CUDA/lib
+"$PACKAGE/scripts/qmd-memory" service stop
+"$PACKAGE/scripts/qmd-memory" service start --warm
+```
+
+The helper only creates package-local symlinks to existing public runtime libraries; it never downloads models, grants trust, or overwrites conflicting entries. `PI_MEMORY_CUDA_LIB_DIR` is an alternative to `--lib-dir`. The shim is machine-local: recreate it after moving the package or changing toolkits. A successful GPU warmup requires `device.gpu: "cuda"` and `gpuLayers.embed > 0`; a running CPU service is not reported as GPU success. Server failures are logged in the consumer's `.pi/qmd-state/service.log`, and the client/notification now show the actual error before any stack excerpt.
+
 The default service lifetime is **30 minutes after last use**, configurable to 1–1440 minutes. Status polls do not extend it. Shutdown of a Pi Session does not stop the project service; explicit stop or idle expiry closes the store and releases models. Authenticated Unix-socket requests queue GPU jobs serially. This pinned adapter uses QMD's internal retention field because its public SDK does not expose retention options.
 
 ## Scope and security
@@ -77,4 +91,4 @@ npm test --prefix "$PACKAGE"
 PI_MEMORY_TEST_HOST=/path/to/pi-coding-agent/dist/index.js npm test --prefix "$PACKAGE"
 ```
 
-Tests own and remove temporary projects, explicitly load the package using the actual Pi SDK, register the real upstream tools, execute `memory_write`, and check A/B separation and safe startup failure. They also cover the advertised skill metadata and final appended routing policy (including byte-stable delivery across positive, negated, and quoted prompts), failing shell environment validation with a no-network `hf` stub, ordinary Git staging protection, and missing-embedding diagnostics through a fake Unix socket and the real client. Prompt-contract checks validate loading and contents, not whether an LLM follows the policy. They do not grant trust, download models, or start GPU services. GPU search, live socket authorization, and full idle-expiry behavior require a separate approved hardware test; source-project results are not package validation.
+Tests own and remove temporary projects, explicitly load the package using the actual Pi SDK, register the real upstream tools, execute `memory_write`, and check A/B separation and safe startup failure. They also cover package-local CUDA SONAME setup, clean-shell loader propagation without project initialization, CUDA setup conflicts and symlink rejection, concise service-error reporting, the advertised skill metadata and final appended routing policy (including byte-stable delivery across positive, negated, and quoted prompts), failing shell environment validation with a no-network `hf` stub, ordinary Git staging protection, and missing-embedding diagnostics through a fake Unix socket and the real client. Prompt-contract checks validate loading and contents, not whether an LLM follows the policy. They do not grant trust, download models, or start GPU services. GPU search, live socket authorization, and full idle-expiry behavior require a separate approved hardware test; source-project results are not package validation.

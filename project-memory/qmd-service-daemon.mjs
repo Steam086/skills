@@ -71,7 +71,9 @@ async function perform(body, warnings) {
     const probe = await store.internal.llm.embed(formatQueryForEmbedding('project memory retrieval'));
     if (!probe?.embedding.length) throw new Error('Embedding warmup inference failed');
     const info = await status();
-    if (info.device?.gpu !== 'cuda' || info.gpuLayers.embed < 1) throw new Error('Expected actual CUDA embedding offload');
+    if (info.device?.gpu !== 'cuda' || !(info.gpuLayers.embed > 0)) {
+      throw new Error(`Expected actual CUDA embedding offload (gpu=${info.device?.gpu}, embedGpuLayers=${info.gpuLayers.embed}). Check CUDA libraries and restart this project's QMD service.`);
+    }
     return info;
   }
   if (action === 'semantic') return semanticSearch(store, query, { ...options, onWarning: message => warnings.push(message) });
@@ -119,6 +121,7 @@ const server = http.createServer((req, res) => {
         const result = body.action === 'status' ? await status() : body.action === 'stop' ? { stopping: true } : await perform(body, warnings);
         send(res, 200, { result, elapsedMs: performance.now() - start, ...(warnings.length ? { warnings } : {}) });
       } catch (error) {
+        console.error(`Project QMD ${body.action} failed: ${error.stack || error}`);
         send(res, 500, { error: error.message });
       } finally {
         if (countsAsUse) active--;

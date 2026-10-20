@@ -51,6 +51,12 @@ const values = {
   XDG_CACHE_HOME: path.join(root, '.pi/cache'),
 };
 values.PATH = [path.join(packageRoot, 'bin'), ...(process.env.PATH || '').split(path.delimiter).filter(Boolean)].join(path.delimiter);
+// The explicit installer maps existing public CUDA libraries here. Propagate
+// this to child processes even when plain Pi starts from a clean shell.
+const cudaRuntime = path.join(packageRoot, 'runtime/cuda');
+if (fs.existsSync(cudaRuntime)) {
+  values.LD_LIBRARY_PATH = [...new Set([cudaRuntime, ...(process.env.LD_LIBRARY_PATH || '').split(path.delimiter).filter(Boolean)])].join(path.delimiter);
+}
 const removed = ['QMD_FORCE_CPU', 'QMD_TRUST_LOCAL_CONFIG', 'QMD_TRUST_UPDATE_HOOKS', 'QMD_MEMORY_NATIVE', 'QMD_NATIVE_VSEARCH'];
 function configure() {
   validateState();

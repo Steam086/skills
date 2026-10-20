@@ -35,7 +35,7 @@ test('real semanticSearch diagnostics traverse fake Unix socket and real client 
     fs.writeFileSync(path.join(stubDir, 'flock'), '#!/bin/sh\ntouch "' + forbiddenStartup + '"\nexit 99\n', { mode: 0o700 });
     const socket = path.join(dir, 'qmd.sock'), token = 'a'.repeat(64);
     fs.writeFileSync(path.join(dir, 'service.json'), JSON.stringify({ root, socket, token, pid: process.pid }));
-    let status = { totalDocuments: 1, hasVectorIndex: false }, vectorCalls = 0;
+    let status = { totalDocuments: 1, hasVectorIndex: false }, vectorCalls = 0, failure;
     const store = { getStatus: async () => status, searchVector: async () => { vectorCalls++; return []; } };
     const requests = [];
     server = http.createServer((req, res) => {
@@ -47,6 +47,7 @@ test('real semanticSearch diagnostics traverse fake Unix socket and real client 
           assert.equal(req.url, '/qmd');
           const body = JSON.parse(raw);
           requests.push(body.action);
+          if (body.action !== 'status' && failure) throw new Error(failure);
           const warnings = [];
           const result = body.action === 'status' ? { running: true } : await semanticSearch(store, body.query, { ...body.options, onWarning: warning => warnings.push(warning) });
           res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -73,7 +74,13 @@ test('real semanticSearch diagnostics traverse fake Unix socket and real client 
     assert.deepEqual(JSON.parse(ready.stdout), []);
     assert.equal(ready.stderr, '');
     assert.equal(vectorCalls, 1);
-    assert.deepEqual(requests, ['status', 'semantic', 'status', 'semantic', 'status', 'semantic']);
+    failure = 'Expected actual CUDA embedding offload';
+    const failed = await client(root, stubDir);
+    assert.equal(failed.code, 1);
+    assert.equal(failed.stdout, '');
+    assert.equal(failed.stderr.trim(), 'Project QMD: ' + failure);
+    assert.doesNotMatch(failed.stderr, /file:\/\/\/|JSON\.parse|IncomingMessage/);
+    assert.deepEqual(requests, ['status', 'semantic', 'status', 'semantic', 'status', 'semantic', 'status', 'semantic']);
     assert.equal(fs.existsSync(forbiddenStartup), false);
   } finally {
     if (server?.listening) await new Promise(resolve => server.close(resolve));

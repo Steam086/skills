@@ -1,5 +1,6 @@
 # Dependencies and consumer runtime state must not be published.
 /node_modules/
+/runtime/
 /.pi/memory/
 /.pi/cache/
 /.pi/qmd-state/

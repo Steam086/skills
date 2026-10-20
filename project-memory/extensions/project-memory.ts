@@ -52,7 +52,9 @@ export default function (pi: ExtensionAPI) {
         cwd: environment.root, env: process.env, timeout: 15000, maxBuffer: 65536,
       });
     } catch (error) {
-      const message = `Project QMD warmup failed; check scripts/qmd-memory: ${String(error).slice(0, 300)}`;
+      const stderr = (error as { stderr?: string }).stderr;
+      const detail = stderr?.trim() || String(error);
+      const message = `Project QMD warmup failed: ${detail.slice(0, 900)}\nSee ${environment.root}/.pi/qmd-state/service.log`;
       if (ctx.hasUI) ctx.ui.notify(message, 'warning');
       else console.error(message);
     }
