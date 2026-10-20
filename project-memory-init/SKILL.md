@@ -2,7 +2,7 @@
 name: project-memory-init
 description: 仅在用户显式调用时，为指定项目安装 project-memory skill 与插件，检查配置、复用已校验的本地模型并分层验收；不处理普通源码问答，不自动为其他项目启用记忆。
 disable-model-invocation: true
-compatibility: Pi with local package support; Linux/Unix, Node.js >=22.19, npm, Bash and flock. GPU retrieval requires compatible NVIDIA/CUDA. Python 3 and hf are needed only for the supplied online model provisioning script.
+compatibility: Pi with local package support; Linux/Unix, Node.js >=22.19, npm, Bash and flock. GPU retrieval requires compatible NVIDIA/CUDA. Model provisioning requires Python 3.8+; hf is needed only for online downloads.
 ---
 
 # Project Memory Init
@@ -18,7 +18,7 @@ compatibility: Pi with local package support; Linux/Unix, Node.js >=22.19, npm, 
 3. 审查配套包 README、manifest、安装脚本和目标现有配置。检查旧实现、软链接、依赖与模型。先报告执行计划、将修改的路径、联网需求和待批准操作；已有冲突停止，不覆盖、迁移或删除。
 4. 明确安装请求允许初始化与项目注册，但不自动授权下载、升级、QMD trust 或 GPU 服务启动。按用户已明确授权的范围执行；可一次确认整组操作，不重复索要已给出的授权。
 5. 复用现有依赖；缺失时经说明运行包自带锁定依赖安装器。运行包的 setup 与 `pi install --local`，保留其他设置。不全局安装运行时，不修改 AGENTS.md、全局 trust 或驱动配置。
-6. 模型默认仅 embed。优先目标缓存，再检查用户指定或已确认的模型目录，不全盘扫描。按包内 `model-sources.json` 校验 GGUF magic 与 SHA256；同文件系统硬链接，跨文件系统经确认复制。冲突停止，禁止状态软链接和静默下载。Deep 模型仅在用户要求时准备。
+6. 模型默认仅 embed。优先目标缓存，再检查用户指定或已确认的模型目录，不全盘扫描。使用包的 `scripts/memory-models`（`--from` / `--offline` / `--model-dir` / `--copy`）按 `model-sources.json` 校验 GGUF magic 与 SHA256；同文件系统硬链接，跨文件系统经确认复制。冲突停止，禁止状态软链接和静默下载。Deep 模型仅在用户要求时准备。
 7. QMD trust 与 Pi 项目 trust 分开。审查 `.qmd/index.yml` 并获授权后才执行 QMD trust；`--approve` 仅是说明后的单次安装批准，永久 Pi trust 留给用户交互确认，绝不手写信任数据库。
 8. 按授权执行配置检查、索引和 GPU 预热，报告实际结果：注册、模型、QMD trust、GPU、待完成的 Pi trust 分别列出。空记忆索引为 0 属正常，不为了验收写入假记忆。不把静态检查当作 GPU 或 LLM 行为验证。
 

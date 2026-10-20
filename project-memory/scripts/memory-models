@@ -1,40 +1,8 @@
 #!/usr/bin/env bash
-# Explicit online provisioning; weights are pinned and SHA256-verified.
+# Resolve the machine cache BEFORE memory-env redirects XDG_CACHE_HOME.
 set -euo pipefail
 PACKAGE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+DEFAULT_MODEL_DIR="${PI_MEMORY_MODEL_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/project-memory/models}"
 environment_shell="$(node "$PACKAGE/memory-env.cjs" --shell)" || exit $?
 eval "$environment_shell"
-MODEL_DIR="$PI_MEMORY_PROJECT_ROOT/.pi/cache/qmd/models"
-case "${1:-embed}" in embed|all) selection="${1:-embed}" ;; *) echo 'Usage: scripts/memory-models [embed|all]' >&2; exit 2 ;; esac
-mkdir -p "$MODEL_DIR"
-while IFS=$'\t' read -r repo file revision sha cache_name; do
-  if [[ ! -f "$MODEL_DIR/$file" ]]; then
-    # Existing HTTP(S)_PROXY works; hf's httpx lacks socksio for ALL_PROXY.
-    # Only adjust this download's environment, never the system or global config.
-    env -u ALL_PROXY -u all_proxy hf download "$repo" "$file" --revision "$revision" --local-dir "$MODEL_DIR"
-  fi
-  python3 - "$MODEL_DIR/$file" "$sha" <<'PY'
-import hashlib,sys
-h=hashlib.sha256()
-with open(sys.argv[1],'rb') as f:
-    if f.read(4)!=b'GGUF': raise SystemExit('Invalid GGUF magic')
-    f.seek(0)
-    while chunk:=f.read(8*1024*1024): h.update(chunk)
-if h.hexdigest()!=sys.argv[2]: raise SystemExit('Model SHA256 mismatch; file retained for investigation.')
-print('GGUF SHA256 verified:',sys.argv[1],h.hexdigest())
-PY
-  alias="$MODEL_DIR/$cache_name"
-  if [[ -e "$alias" ]]; then
-    [[ "$alias" -ef "$MODEL_DIR/$file" ]] || { echo "Existing model alias differs; refusing overwrite: $alias" >&2; exit 2; }
-  else
-    ln "$MODEL_DIR/$file" "$alias" # Official resolver name, no duplicated storage.
-  fi
-done < <(python3 - "$PACKAGE/model-sources.json" "$selection" <<'PY'
-import json,sys
-models=json.load(open(sys.argv[1]))
-for role,value in models.items():
-    if sys.argv[2]=='all' or role=='embed':
-        print('\t'.join(value[key] for key in ['repo','file','revision','sha256','cacheName']))
-PY
-)
-printf 'Requested models ready for offline QMD retrieval.\n'
+exec python3 "$PACKAGE/scripts/memory-models.py" --default-model-dir "$DEFAULT_MODEL_DIR" "$@"

@@ -8,7 +8,7 @@
 - 检查 `PI_MEMORY_PROJECT_ROOT` 是否遗留其他目标；仅在本次子 shell 中设成目标真实路径，不能污染其他会话。
 - 检查目标 `.pi/settings.json`、`.pi/extensions`、`.pi/skills`、`.agents/skills`、`.qmd/index.yml` / `index.yaml` 及适用的全局资源声明，识别重复 runtime、旧 `repo-memory`、`.repo-memory` 或自定义 bootstrap。不要输出全局 auth 文件或其他凭据。发现活跃冲突停止并请求人工迁移。
 - 检查包 manifest 是否同时声明 `SKILL.md` 与 `extensions/project-memory.ts`，以及所需脚本、lockfile 和 `model-sources.json` 是否存在。完整阅读包 README；版本不兼容时停止，不套用旧命令。
-- 检查 Node.js >=22.19、npm、Bash、flock 和可用 Pi。只有在线模型下载需要 Python 3、hf；只有 GPU 验证需要兼容驱动/CUDA。
+- 检查 Node.js >=22.19、npm、Bash、flock 和可用 Pi。模型准备需要 Python 3.8+，只有在线模型下载需要 hf；只有 GPU 验证需要兼容驱动/CUDA。
 - 现有项目状态不能通过软链接共享；包的 setup 还会执行安全预检。不要复制别的项目 `.pi`、QMD 信任记录或服务元数据。
 
 ## 2. 来源与更新
@@ -69,11 +69,24 @@ setup 创建 `.pi/memory/`、`.pi/cache/qmd/models/`、`.pi/qmd-state/`、`.qmd/
 
 默认选择 `model-sources.json` 的 `embed`；用户要求 Deep 时再选择 `rerank` 和 `generate`。先检查目标缓存，再检查明确给定的源目录，不遍历用户整个 home、其他项目或整块磁盘。`/data/models/qmd` 只是一个可由用户指定的本机示例，不是硬编码前提。
 
-每个模型按以下算法处理（使用本机可用的 Node.js 或 Python 文件 API）：
+优先使用配套包的实际 provisioner，不临时编写复制逻辑。需要 Python 3.8+，仅在线下载需要 hf：
+
+```bash
+# --from 隐含离线，不修改源目录、不下载；MODEL_SOURCE 必须是已确认的真实路径
+"$PACKAGE/scripts/memory-models" embed --from "$MODEL_SOURCE" --offline
+# 跨盘且已明确批准复制时，加 --copy
+# "$PACKAGE/scripts/memory-models" embed --from "$MODEL_SOURCE" --offline --copy
+# 未给源目录时，只查项目与默认/配置的共享缓存，不联网
+"$PACKAGE/scripts/memory-models" embed --offline
+```
+
+在线共享目录优先级为 `--model-dir` > `PI_MEMORY_MODEL_DIR` > `${XDG_CACHE_HOME:-$HOME/.cache}/project-memory/models`。脚本在修改项目环境前解析默认目录。初始化代理如果已在父 shell 中把 XDG_CACHE_HOME 设成项目缓存，应显式传入已确认的共享目录，避免继承错误默认值。`--from` 与 `--model-dir` 互斥；前者为只读离线导入，后者允许显式下载到共享缓存。不要自动回退到联网。Deep 将 `embed` 替换为 `all`。
+
+脚本负责以下校验和发布原则；失败时报告原因，不用临时脚本绕过：
 
 1. 从已审查 manifest 取 `file`、`cacheName`、`sha256`。只允许普通 basename，拒绝路径分隔符、绝对路径、`.`、`..`。
 2. 候选为目标或源目录下的 `file` / `cacheName`。验证是普通文件，不跟随项目状态软链接；检查头四字节为 `GGUF`，流式计算完整 SHA256，必须与 manifest 一致。
-3. **先验证所有选中的源文件及已有目标，再创建任何链接。** 已有目标内容不符、别名不符或软链接时停止，保留现场，不删除。
+3. **先验证所有已存在的选中候选文件及已有目标，再发布权重。** 已有目标内容不符、别名不符或软链接时停止，保留现场，不删除；缺失的在线模型在授权下载后逐个校验再发布。
 4. 已有目标与 alias 校验正确则复用。缺失目标用独占创建的硬链接，不覆盖；遇到 EXDEV 时停止，取得复制授权后独占复制并重新校验。其他错误不擅自退化为复制。新建 alias 指向目标权重的硬链接，目标两个名字不重复占用存储。
 5. 不 chmod、不改写硬链接模型；它们与源共享 inode，任何原地修改会影响其他消费者。需要独立可变文件时选择复制。记录源、目标、校验结果和复用方式。
 

@@ -48,7 +48,30 @@ No retrieval path automatically provisions missing models. Review `.qmd/index.ym
 "$PACKAGE/scripts/memory-index"        # update + incremental embedding
 ```
 
-`memory-models all` explicitly downloads the additional Deep models. Public model revisions and SHA256 digests are pinned in `model-sources.json`; provisioning checks GGUF magic and SHA256. Weights and aliases stay in the consumer's `.pi/cache/qmd/models`. Runtime checks reject missing/non-GGUF weights. There is no trust bypass. Keyword search needs no weights; semantic uses only Qwen embeddings through the SDK's `searchVector()`. Deep loads expansion and reranking models only when requested.
+`memory-models all` explicitly provisions the additional Deep models. Public revisions and SHA256 digests are pinned in `model-sources.json`; provisioning checks GGUF magic and SHA256. Runtime weights and aliases remain in the consumer's `.pi/cache/qmd/models`. Runtime checks reject missing/non-GGUF weights. There is no trust bypass. Keyword search needs no weights; semantic uses only Qwen embeddings through the SDK's `searchVector()`. Deep loads expansion and reranking models only when requested.
+
+### Portable shared model cache
+
+The model provisioner requires Python 3.8+; `hf` is only needed when downloading. Shared download/cache directory precedence is `--model-dir` > `PI_MEMORY_MODEL_DIR` > `${XDG_CACHE_HOME:-$HOME/.cache}/project-memory/models`. The wrapper resolves this **before** the runtime redirects XDG_CACHE_HOME into the project. These are machine-local choices, not absolute paths committed to project configuration.
+
+```bash
+# Explicit provisioning: reuse project/shared weights; download missing weights
+"$PACKAGE/scripts/memory-models" embed
+"$PACKAGE/scripts/memory-models" all --model-dir /data/models/qmd
+
+# Never download; --from implies --offline and does not write to the source
+"$PACKAGE/scripts/memory-models" embed --from /mnt/models/qmd --offline
+# Opt into copying when source and project are on different filesystems
+"$PACKAGE/scripts/memory-models" embed --from /mnt/models/qmd --copy
+# Offline lookup in the configured/default shared cache
+PI_MEMORY_MODEL_DIR=/data/models/qmd "$PACKAGE/scripts/memory-models" embed --offline
+```
+
+Candidates are checked in the project first, then the selected source/cache, using manifest filenames and resolver aliases. All existing selected candidates must validate before publication; a corrupt/conflicting candidate fails rather than being overwritten or silently replaced online. Missing online models are downloaded at pinned revisions into a temporary cache directory, verified, then published without overwrite. Locks serialize cooperative online cache writes and project provisioning. Interrupted staging files are never used as valid weights; abrupt termination may leave hidden temporary directories for manual cleanup.
+
+Same-filesystem reuse uses hard links; cross-filesystem reuse fails unless `--copy` is explicitly given, then stages and verifies a copy before publication. Existing valid files are preserved even if independently copied. Never modify shared hard-linked weights in place. Symlinked source/cache/state paths are rejected; use real paths. Offline sources may be read-only and receive no lock files. Locks are advisory, not protection against hostile concurrent filesystem mutation; network filesystems must support flock/hard links or use a local copy.
+
+On another machine, obtain this package, set up the consumer, point `--from` at transferred weights (or explicitly download), and separately approve QMD/Pi trust. Do not transfer service metadata, tokens, trust records, CUDA loader links, or SQLite state as a deployment shortcut. Model provisioning itself never grants trust or starts services. Existing project-only caches continue to work and are not automatically copied back into the shared cache.
 
 ## Operation
 
