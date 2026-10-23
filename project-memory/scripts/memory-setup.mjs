@@ -11,7 +11,7 @@ if (fs.existsSync(config) && fs.readFileSync(config, 'utf8') !== template) {
 // Preflight both local ignore files before creating state or changing config.
 // Append our rules last so existing negations cannot expose runtime artifacts.
 const ignoreFiles = [
-  { relative: '.pi/.gitignore', rules: ['/memory/', '/cache/', '/qmd-state/'] },
+  { relative: '.pi/.gitignore', rules: ['/memory/', '/memory-state/', '/cache/', '/qmd-state/'] },
   { relative: '.qmd/.gitignore', rules: ['/index.sqlite*'] },
 ].map(({ relative, rules }) => {
   env.assertLocal(env.root, relative);
@@ -22,7 +22,7 @@ const ignoreFiles = [
   const content = existing.endsWith(block) ? existing : existing + (existing && !existing.endsWith('\n') ? '\n' : '') + block;
   return { filename, existing, content };
 });
-for (const name of ['.qmd', '.pi/memory/daily', '.pi/memory/recovery', '.pi/cache/qmd/models', '.pi/qmd-state']) {
+for (const name of ['.qmd', '.pi/memory/topics', '.pi/memory/daily', '.pi/memory/recovery', '.pi/cache/qmd/models', '.pi/qmd-state']) {
   env.assertLocal(env.root, name);
   fs.mkdirSync(path.join(env.root, name), { recursive: true, mode: 0o700 });
 }

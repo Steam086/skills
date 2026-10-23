@@ -65,6 +65,7 @@ async function main() {
     } else throw new Error('Usage: qmd service [start [--warm]|status|stop]');
   } else {
     const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
+      'existing-service-only': { type: 'boolean' },
       json: { type: 'boolean' }, format: { type: 'string' }, collection: { type: 'string', short: 'c', multiple: true },
       n: { type: 'string', short: 'n' }, 'min-score': { type: 'string' }, full: { type: 'boolean' },
       'full-path': { type: 'boolean' }, files: { type: 'boolean' }, all: { type: 'boolean' },
@@ -87,7 +88,12 @@ async function main() {
     if (!action) throw new Error('Unsupported project QMD command: ' + command);
     const query = positionals.join(' ').trim();
     if ((action === 'semantic' || action === 'deep') && !query) throw new Error('A non-empty query is required');
-    await ensureService();
+    if (values['existing-service-only']) {
+      if (!['semantic', 'deep'].includes(action)) throw new Error('Existing-service-only is a retrieval option');
+      const { readQmdIndex } = await import('./lib/qmd-readonly.mjs');
+      await readQmdIndex(env.values.INDEX_PATH, { checkOnly: true });
+      // No status/start probe: a missing or dead resident fails without initialization.
+    } else await ensureService();
     const response = await call(action, options, query);
     for (const warning of response.warnings || []) console.error(warning);
     if (action === 'semantic' || action === 'deep') {

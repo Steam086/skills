@@ -17,9 +17,11 @@ function assertLocal(root, relative) {
   }
 }
 const root = resolveRoot();
-function validateState() {
-  for (const name of ['.pi/memory', '.pi/cache', '.pi/qmd-state', '.qmd']) {
+function validateState({ deep = true } = {}) {
+  assertLocal(root, '.pi/memory-config.json');
+  for (const name of ['.pi/memory', '.pi/memory-state', '.pi/cache', '.pi/qmd-state', '.qmd']) {
     assertLocal(root, name);
+    if (!deep) continue;
     const walk = relative => {
       const filename = path.join(root, relative);
       if (!fs.existsSync(filename)) return;
@@ -59,7 +61,9 @@ if (fs.existsSync(cudaRuntime)) {
 }
 const removed = ['QMD_FORCE_CPU', 'QMD_TRUST_LOCAL_CONFIG', 'QMD_TRUST_UPDATE_HOOKS', 'QMD_MEMORY_NATIVE', 'QMD_NATIVE_VSEARCH'];
 function configure() {
-  validateState();
+  // Validate the complete tree at process initialization, not on every tool
+  // callback. Knowledge/config/diagnostic operations validate their own paths.
+  validateState({ deep: false });
   Object.assign(process.env, values);
   for (const key of removed) delete process.env[key];
   return { root, packageRoot, values };

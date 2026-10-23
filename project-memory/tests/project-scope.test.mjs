@@ -71,7 +71,7 @@ test('setup rejects differing config and symlinked state without overwrite', () 
   assert.notEqual(wrongRoot.status, 0);
   assert.match(wrongRoot.stderr, /consumer project/);
 }));
-test('actual Pi SDK loads routing policy and scoped memory tools in projects A/B', () => withProjects((a, b) => {
+test('actual Pi SDK loads stable routing policy and scoped legacy tools in projects A/B', () => withProjects((a, b) => {
   assert.ok(fs.existsSync(host), 'Install the Pi host or set PI_MEMORY_TEST_HOST to its dist/index.js');
   for (const [root, marker] of [[a, 'PROJECT_A_ONLY'], [b, 'PROJECT_B_ONLY']]) {
     assert.equal(run(root, 'scripts/memory-setup.mjs').status, 0);
@@ -85,3 +85,10 @@ test('actual Pi SDK loads routing policy and scoped memory tools in projects A/B
   assert.doesNotMatch(fs.readFileSync(path.join(a, '.pi/memory/MEMORY.md'), 'utf8'), /PROJECT_B_ONLY/);
   assert.doesNotMatch(fs.readFileSync(path.join(b, '.pi/memory/MEMORY.md'), 'utf8'), /PROJECT_A_ONLY/);
 }));
+for (const scenario of ['lazy', 'off', 'crud', 'legacy', 'legacy-stamps', 'revoke-read-success', 'revoke-off-error', 'revoke-cycle-success', 'revoke-shutdown-success', 'revoke-read-error', 'revoke-off-success', 'revoke-cycle-error', 'revoke-shutdown-error', 'qmd-readonly', 'navigation', 'budgets', 'qmd', 'warmup', 'telemetry']) {
+  test(`project-memory runtime SDK: ${scenario}`, () => withProjects(a => {
+    const result = run(a, 'tests/sdk-probe.mjs', [], { PI_MEMORY_TEST_HOST: host, PI_MEMORY_TEST_PACKAGE: pkg, PI_MEMORY_TEST_SCENARIO: scenario });
+    assert.equal(result.status, 0, result.stderr + result.stdout);
+    assert.equal(JSON.parse(result.stdout).passed, true);
+  }));
+}

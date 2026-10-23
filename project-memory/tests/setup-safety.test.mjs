@@ -44,7 +44,7 @@ function git(root, ...args) {
   delete env.GIT_DIR; delete env.GIT_WORK_TREE; delete env.GIT_INDEX_FILE;
   return execFileSync('git', args, { cwd: root, env, encoding: 'utf8' }).trim();
 }
-const artifacts = ['.pi/memory/MEMORY.md', '.pi/memory/recovery/record.json', '.pi/cache/qmd/models/model.gguf', '.pi/qmd-state/service.json', '.pi/qmd-state/service.log', '.pi/qmd-state/qmd.sock', '.pi/qmd-state/runtime.lock', '.qmd/index.sqlite', '.qmd/index.sqlite-wal', '.qmd/index.sqlite-shm'];
+const artifacts = ['.pi/memory/MEMORY.md', '.pi/memory/recovery/record.json', '.pi/memory-state/diagnostics/events.jsonl', '.pi/memory-state/handoffs/current.json', '.pi/cache/qmd/models/model.gguf', '.pi/qmd-state/service.json', '.pi/qmd-state/service.log', '.pi/qmd-state/qmd.sock', '.pi/qmd-state/runtime.lock', '.qmd/index.sqlite', '.qmd/index.sqlite-wal', '.qmd/index.sqlite-shm'];
 function privateArtifacts(root) {
   for (const relative of artifacts) {
     fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
@@ -55,7 +55,7 @@ test('explicit setup preserves existing ignores and prevents ordinary staging of
   git(root, 'init', '--quiet');
   fs.writeFileSync(path.join(root, '.gitignore'), '# consumer root rule\nkeep-private\n');
   fs.mkdirSync(path.join(root, '.pi')); fs.mkdirSync(path.join(root, '.qmd'));
-  const piExisting = '# existing Pi rules\n/custom/\n!/memory/\n!/cache/\n!/qmd-state/';
+  const piExisting = '# existing Pi rules\n/custom/\n!/memory/\n!/memory-state/\n!/cache/\n!/qmd-state/';
   const qmdExisting = '# existing QMD rules\n/custom/\n!/index.sqlite*\n';
   fs.writeFileSync(path.join(root, '.pi/.gitignore'), piExisting);
   fs.writeFileSync(path.join(root, '.qmd/.gitignore'), qmdExisting);

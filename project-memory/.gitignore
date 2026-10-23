@@ -2,6 +2,7 @@
 /node_modules/
 /runtime/
 /.pi/memory/
+/.pi/memory-state/
 /.pi/cache/
 /.pi/qmd-state/
 /.qmd/index.sqlite*
