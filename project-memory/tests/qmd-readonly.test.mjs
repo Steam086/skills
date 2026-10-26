@@ -26,7 +26,7 @@ for (const kind of ['current', 'missing-marker', 'wrong-marker', 'legacy-fts', '
     if (kind === 'current') {
       for (const query of ['scheduler', '中文']) {
         const results = await readQmdIndex(filename, { query, limit: 1 });
-        assert.equal(results.length, 1); assert.equal(results[0].file, 'qmd://pi-memory/topics/scheduler-cancellation.md');
+        assert.equal(results.length, 1); assert.equal(results[0].file, 'qmd://project-memory/topics/scheduler-cancellation.md');
         assert.deepEqual(Object.keys(results[0]), ['file', 'score']); assert.doesNotMatch(JSON.stringify(results), /BODY_MUST|body|snippet/);
       }
       assert.deepEqual(await readQmdIndex(filename, { checkOnly: true }), []);
@@ -56,7 +56,7 @@ test('qmd-service-client: existing-service-only refuses a cold service without f
 
 test('qmd-service-client: resident-only dispatch checks schema and sends no startup/status request', async t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qmd-resident-live-'));
-  const filename = qmdFixture(root), dir = path.join(root, '.pi/qmd-state'); fs.mkdirSync(dir, { recursive: true });
+  const filename = qmdFixture(root), dir = path.join(root, '.project-memory/qmd-state'); fs.mkdirSync(dir, { recursive: true });
   const socket = path.join(dir, 'qmd.sock'), token = 'b'.repeat(64), requests = [];
   fs.writeFileSync(path.join(dir, 'service.json'), JSON.stringify({ root, socket, token, pid: process.pid }));
   const server = http.createServer((req, res) => {

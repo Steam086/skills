@@ -23,8 +23,8 @@ test('all shell environment entry points stop before downloads or writes on inva
     fs.mkdirSync(a); fs.mkdirSync(b);
     if (kind === 'pi-symlink') fs.symlinkSync(b, path.join(a, '.pi'));
     if (kind === 'cache-symlink') {
-      fs.mkdirSync(path.join(a, '.pi'));
-      fs.symlinkSync(b, path.join(a, '.pi/cache'));
+      fs.mkdirSync(path.join(a, '.project-memory'));
+      fs.symlinkSync(b, path.join(a, '.project-memory/cache'));
     }
     const root = kind === 'invalid-root' ? path.join(a, 'missing') : kind === 'package-root' ? pkg : a;
     for (const [entry, args] of [['scripts/memory-models', ['embed']], ['scripts/pi-memory', []], ['bin/qmd', ['service', 'status']]]) {
@@ -44,7 +44,7 @@ function git(root, ...args) {
   delete env.GIT_DIR; delete env.GIT_WORK_TREE; delete env.GIT_INDEX_FILE;
   return execFileSync('git', args, { cwd: root, env, encoding: 'utf8' }).trim();
 }
-const artifacts = ['.pi/memory/MEMORY.md', '.pi/memory/recovery/record.json', '.pi/memory-state/diagnostics/events.jsonl', '.pi/memory-state/handoffs/current.json', '.pi/cache/qmd/models/model.gguf', '.pi/qmd-state/service.json', '.pi/qmd-state/service.log', '.pi/qmd-state/qmd.sock', '.pi/qmd-state/runtime.lock', '.qmd/index.sqlite', '.qmd/index.sqlite-wal', '.qmd/index.sqlite-shm'];
+const artifacts = ['.project-memory/MEMORY.md', '.project-memory/recovery/record.json', '.project-memory/diagnostics/events.jsonl', '.project-memory/handoffs/current.json', '.project-memory/cache/qmd/models/model.gguf', '.project-memory/qmd-state/service.json', '.project-memory/qmd-state/service.log', '.project-memory/qmd-state/qmd.sock', '.project-memory/qmd-state/runtime.lock', '.project-memory/.qmd/index.sqlite', '.project-memory/.qmd/index.sqlite-wal', '.project-memory/.qmd/index.sqlite-shm'];
 function privateArtifacts(root) {
   for (const relative of artifacts) {
     fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
@@ -54,19 +54,19 @@ function privateArtifacts(root) {
 test('explicit setup preserves existing ignores and prevents ordinary staging of private runtime', () => temporary(root => {
   git(root, 'init', '--quiet');
   fs.writeFileSync(path.join(root, '.gitignore'), '# consumer root rule\nkeep-private\n');
-  fs.mkdirSync(path.join(root, '.pi')); fs.mkdirSync(path.join(root, '.qmd'));
+  fs.mkdirSync(path.join(root, '.pi')); fs.mkdirSync(path.join(root, '.project-memory/.qmd'), { recursive: true });
   const piExisting = '# existing Pi rules\n/custom/\n!/memory/\n!/memory-state/\n!/cache/\n!/qmd-state/';
   const qmdExisting = '# existing QMD rules\n/custom/\n!/index.sqlite*\n';
   fs.writeFileSync(path.join(root, '.pi/.gitignore'), piExisting);
-  fs.writeFileSync(path.join(root, '.qmd/.gitignore'), qmdExisting);
+  fs.writeFileSync(path.join(root, '.project-memory/.qmd/.gitignore'), qmdExisting);
   const result = setup(root);
   assert.equal(result.status, 0, result.stderr);
   const piIgnore = fs.readFileSync(path.join(root, '.pi/.gitignore'), 'utf8');
-  const qmdIgnore = fs.readFileSync(path.join(root, '.qmd/.gitignore'), 'utf8');
+  const qmdIgnore = fs.readFileSync(path.join(root, '.project-memory/.qmd/.gitignore'), 'utf8');
   assert.ok(piIgnore.startsWith(piExisting)); assert.ok(qmdIgnore.startsWith(qmdExisting));
   assert.equal(setup(root).status, 0);
   assert.equal(fs.readFileSync(path.join(root, '.pi/.gitignore'), 'utf8'), piIgnore);
-  assert.equal(fs.readFileSync(path.join(root, '.qmd/.gitignore'), 'utf8'), qmdIgnore);
+  assert.equal(fs.readFileSync(path.join(root, '.project-memory/.qmd/.gitignore'), 'utf8'), qmdIgnore);
   assert.equal(fs.readFileSync(path.join(root, '.gitignore'), 'utf8'), '# consumer root rule\nkeep-private\n');
   privateArtifacts(root);
   for (const relative of artifacts) assert.equal(git(root, 'check-ignore', relative), relative);
@@ -74,7 +74,7 @@ test('explicit setup preserves existing ignores and prevents ordinary staging of
   git(root, 'add', '.');
   const tracked = git(root, 'ls-files').split('\n');
   for (const relative of artifacts) assert.ok(!tracked.includes(relative), relative);
-  for (const relative of ['.pi/.gitignore', '.qmd/.gitignore', '.qmd/index.yml']) assert.ok(tracked.includes(relative), relative);
+  for (const relative of ['.pi/.gitignore', '.project-memory/.gitignore']) assert.ok(tracked.includes(relative), relative);
 }));
 test('package ignore rules independently protect accidentally placed runtime state', () => temporary(root => {
   git(root, 'init', '--quiet');
@@ -85,11 +85,11 @@ test('package ignore rules independently protect accidentally placed runtime sta
   assert.equal(git(root, 'ls-files'), '.gitignore');
 }));
 test('setup preflights ignore safety before any initialization writes', () => temporary(root => {
-  fs.mkdirSync(path.join(root, '.pi'));
-  fs.mkdirSync(path.join(root, '.pi/.gitignore'));
+  fs.mkdirSync(path.join(root, '.project-memory'));
+  fs.mkdirSync(path.join(root, '.project-memory/.gitignore'));
   const result = setup(root);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /regular ignore file/);
-  assert.equal(fs.existsSync(path.join(root, '.qmd')), false);
-  assert.deepEqual(fs.readdirSync(path.join(root, '.pi')), ['.gitignore']);
+  assert.match(result.stderr, /private regular file/);
+  assert.equal(fs.existsSync(path.join(root, '.project-memory/.qmd')), false);
+  assert.deepEqual(fs.readdirSync(path.join(root, '.project-memory')), ['.gitignore']);
 }));

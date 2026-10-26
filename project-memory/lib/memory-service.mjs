@@ -32,7 +32,6 @@ export function createMemoryService(environment) {
   const usageSeen = new Set();
   const activeSearches = new Map();
   let searchGeneration = 0;
-  let index;
 
   const currentSession = value => value || fallbackSession;
   const hash = value => config.diagnostics.enabled && config.mode !== 'off' ? telemetry.hash(value) : null;
@@ -91,7 +90,8 @@ export function createMemoryService(environment) {
   }
   function context(sessionId) {
     requireAccess();
-    if (index === undefined) index = store.buildIndex({ maxChars: config.indexMaxChars });
+    // The store caches unchanged metadata and checks disk for other hosts' writes.
+    const index = store.buildIndex({ maxChars: config.indexMaxChars });
     const value = `${routingPolicy}\nMode: ${config.mode}; read: ${config.readEnabled}; write: ${config.writeEnabled}.\n${index}`;
     record('injection', { chars: value.length, estimatedTokens: Math.ceil(value.length / 4), outcome: 'success', reason: 'automatic' }, sessionId);
     return value;
@@ -198,18 +198,18 @@ export function createMemoryService(environment) {
   }
   function mutate(name, params, sessionId) {
     requireAccess(true);
-    let data, topic = false;
+    let data;
     if (name === 'memory_upsert') {
       if (!['explicit', 'analysis'].includes(params.reason)) fail('NOT_PERMITTED');
       if (params.reason === 'analysis' && (config.mode !== 'code-research' || params.verified !== true || !Array.isArray(params.anchors) || !params.anchors.length)) fail('NOT_PERMITTED');
       const { reason: _reason, ...input } = params;
-      data = store.upsert(input); topic = true;
+      data = store.upsert(input);
     } else if (name === 'memory_forget' && params.id) {
-      data = { status: 'deleted', ...store.forget(params) }; topic = true;
+      data = { status: 'deleted', ...store.forget(params) };
     } else if (name === 'memory_restore' && typeof params.recoveryId === 'string' && params.recoveryId.includes('.')) {
-      data = store.restore(params.recoveryId); topic = true;
+      data = store.restore(params.recoveryId);
     } else data = legacy.operation(name, params, currentSession(sessionId));
-    if (data.status !== 'unchanged') { if (topic) index = undefined; qmd.schedule(); }
+    if (data.status !== 'unchanged') qmd.schedule();
     const output = reply(data, 1000);
     record('write', { outcome: data.status, reason: params.reason ?? 'explicit', recordIdHash: identity('record', data.id ?? `legacy:${params.target ?? name}`),
       revision: data.revision, inputChars: params.content?.length, outputChars: output.content[0].text.length,

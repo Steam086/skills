@@ -25,7 +25,7 @@ function source(root, relative = 'src/scheduler.js') {
   write(root, relative, 'export function dispatch(signal) { return !signal.aborted; }\n');
   return { path: relative, symbol: 'dispatch' };
 }
-function topic(root, id = 'scheduler-cancellation') { return path.join(root, '.pi/memory/topics', `${id}.md`); }
+function topic(root, id = 'scheduler-cancellation') { return path.join(root, '.project-memory/topics', `${id}.md`); }
 function changeTopicMeta(root, id, change) {
   const raw = fs.readFileSync(topic(root, id), 'utf8');
   const end = raw.indexOf('\n---\n', 4);
@@ -122,7 +122,7 @@ test('memory-store: invalid IDs, source paths and inputs cannot escape or silent
     throwsCode(() => store.upsert(input(id)), 'INVALID_ID');
     throwsCode(() => store.read({ id }), 'INVALID_ID');
   }
-  for (const relative of ['/etc/passwd', '../escape', 'src/../escape', './file', 'a//b', 'C:\\escape', '.pi/memory/topics/a.md', '.pi/memory-state/secret']) {
+  for (const relative of ['/etc/passwd', '../escape', 'src/../escape', './file', 'a//b', 'C:\\escape', '.project-memory/topics/a.md', '.project-memory/secret']) {
     throwsCode(() => store.upsert(input('bad-source', { anchors: [{ path: relative }] })), 'UNSAFE_PATH');
   }
   for (const extra of [{ title: '' }, { title: 'a'.repeat(161) }, { summary: 's'.repeat(401) }, { content: '' }, { content: 'x'.repeat(24001) }, { tags: Array(13).fill('a') }, { anchors: Array(33).fill({ path: 'a' }) }, { verified: 'yes' }, { expectedRevision: '1' }, { tags: [3] }, { anchors: [{ path: 'a', hash: 'spoof' }] }, { unrecognized: true }]) {
@@ -132,7 +132,7 @@ test('memory-store: invalid IDs, source paths and inputs cannot escape or silent
   fs.mkdirSync(path.join(root, 'directory'));
   throwsCode(() => store.upsert(input('directory-anchor', { anchors: [{ path: 'directory' }] })), 'INVALID_RECORD');
   throwsCode(() => store.upsert(input('missing-revision', { expectedRevision: 1 })), 'REVISION_CONFLICT');
-  assert.equal(fs.existsSync(path.join(root, '.pi/memory/topics')), false);
+  assert.equal(fs.existsSync(path.join(root, '.project-memory/topics')), false);
 });
 
 test('memory-store: reads paginate exact character ranges under serialized budgets', t => {
@@ -226,7 +226,7 @@ test('memory-store: index is capped, stable, body-free, reports omissions and le
   assert.match(before, /Topics: 30; omitted: 25/);
   assert.doesNotMatch(before, /PRIVATE_BODY|Cancellation is checked/);
   assert.equal(store.buildIndex({ maxChars: 180, limit: 5 }), before);
-  write(root, '.pi/memory/MEMORY.md', 'LEGACY_BODY never injected');
+  write(root, '.project-memory/MEMORY.md', 'LEGACY_BODY never injected');
   assert.match(store.buildIndex(), /legacy available/);
   assert.doesNotMatch(store.buildIndex(), /LEGACY_BODY/);
   store.writeHandoff({ content: 'HANDOFF never indexed' });
@@ -234,7 +234,7 @@ test('memory-store: index is capped, stable, body-free, reports omissions and le
   const after = store.buildIndex();
   assert.match(after, /Topics: 29/);
   assert.doesNotMatch(after, /HANDOFF|topic-00|recovery/);
-  assert.ok(fs.existsSync(path.join(root, '.pi/memory/recovery', `${forgotten.recoveryId}.json`)));
+  assert.ok(fs.existsSync(path.join(root, '.project-memory/recovery', `${forgotten.recoveryId}.json`)));
 });
 
 test('memory-store: repeated index/list reuse metadata, stat changes invalidate the cache', t => {
@@ -282,7 +282,7 @@ test('memory-store: recovery imports validate filenames, metadata, body hashes a
   const { root, store } = project(t);
   store.upsert(input());
   const { recoveryId } = store.forget({ id: 'scheduler-cancellation', expectedRevision: 1 });
-  const filename = path.join(root, '.pi/memory/recovery', `${recoveryId}.json`);
+  const filename = path.join(root, '.project-memory/recovery', `${recoveryId}.json`);
   const original = JSON.parse(fs.readFileSync(filename, 'utf8'));
   for (const mutate of [
     record => { record.meta.id = 'different'; },
@@ -312,7 +312,7 @@ test('memory-store: handoff is separate, bounded, hash-idempotent and validated 
   const { root, store } = project(t);
   const first = store.writeHandoff({ content: 'Next: inspect cancellation ownership.', sessionId: 'session-1' });
   assert.equal(first.status, 'created');
-  const filename = path.join(root, '.pi/memory-state/handoffs/current.json');
+  const filename = path.join(root, '.project-memory/handoffs/current.json');
   const stat = fs.statSync(filename);
   assert.equal(store.writeHandoff({ content: 'Next: inspect cancellation ownership.', sessionId: 'session-2' }).status, 'unchanged');
   assert.equal(fs.statSync(filename).mtimeMs, stat.mtimeMs);
@@ -320,7 +320,7 @@ test('memory-store: handoff is separate, bounded, hash-idempotent and validated 
   assert.equal(store.writeHandoff({ content: 'Next: run deterministic tests.' }).status, 'updated');
   assert.equal(store.readHandoff().sessionId, undefined);
   assert.equal(store.list().total, 0);
-  assert.equal(fs.existsSync(path.join(root, '.pi/memory')), false);
+  assert.equal(fs.existsSync(path.join(root, '.project-memory/topics')), false);
   assert.equal(stat.mode & 0o777, 0o600);
   throwsCode(() => store.writeHandoff({ content: 'x'.repeat(12001) }), 'INVALID_INPUT');
   throwsCode(() => store.writeHandoff({ content: '' }), 'INVALID_INPUT');
@@ -335,14 +335,14 @@ test('memory-store: symlinked project/state components fail closed for reads and
   const { root } = project(t);
   const outside = path.join(root, 'outside');
   fs.mkdirSync(outside);
-  for (const component of ['.pi', '.pi/memory', '.pi/memory/topics', '.pi/memory-state', '.pi/memory-state/handoffs']) {
+  for (const component of ['.project-memory', '.project-memory/topics', '.project-memory/handoffs']) {
     const local = path.join(root, component.replaceAll('/', '-'));
     fs.mkdirSync(local);
     const link = path.join(local, component);
     fs.mkdirSync(path.dirname(link), { recursive: true });
     fs.symlinkSync(outside, link);
     const store = createMemoryStore(local);
-    const stateOnly = component.startsWith('.pi/memory-state');
+    const stateOnly = component === '.project-memory/handoffs';
     const action = stateOnly ? () => store.writeHandoff({ content: 'blocked' }) : () => store.upsert(input());
     throwsCode(action, 'UNSAFE_PATH');
     const read = stateOnly ? () => store.readHandoff() : () => store.list();
@@ -359,18 +359,18 @@ test('memory-store: symlinked topics, recovery, handoff and lock files are never
   write(root, 'outside.txt', 'OUTSIDE');
   const outside = path.join(root, 'outside.txt');
   const link = relative => { fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true }); fs.symlinkSync(outside, path.join(root, relative)); };
-  link('.pi/memory/topics/linked.md');
+  link('.project-memory/topics/linked.md');
   throwsCode(() => store.read({ id: 'linked' }), 'UNSAFE_PATH');
   throwsCode(() => store.upsert(input('linked')), 'UNSAFE_PATH');
   throwsCode(() => store.buildIndex(), 'UNSAFE_PATH');
   fs.unlinkSync(topic(root, 'linked'));
-  link('.pi/memory-state/handoffs/current.json');
+  link('.project-memory/handoffs/current.json');
   throwsCode(() => store.writeHandoff({ content: 'blocked' }), 'UNSAFE_PATH');
   throwsCode(() => store.readHandoff(), 'UNSAFE_PATH');
   const recoveryId = `linked.${crypto.randomUUID()}`;
-  link(`.pi/memory/recovery/${recoveryId}.json`);
+  link(`.project-memory/recovery/${recoveryId}.json`);
   throwsCode(() => store.restore(recoveryId), 'UNSAFE_PATH');
-  link('.pi/memory-state/store.lock');
+  link('.project-memory/store.lock');
   throwsCode(() => store.upsert(input('blocked')), 'UNSAFE_PATH');
   assert.equal(fs.readFileSync(outside, 'utf8'), 'OUTSIDE');
 });
@@ -396,12 +396,12 @@ test('memory-store: malformed and oversized topic files fail closed without allo
   throwsCode(() => store.list(), 'INVALID_RECORD');
   throwsCode(() => store.read({ id: 'corrupt' }), 'INVALID_RECORD');
   fs.unlinkSync(topic(root, 'corrupt'));
-  write(root, '.pi/memory/topics/oversized.md', 'x'.repeat(140001));
+  write(root, '.project-memory/topics/oversized.md', 'x'.repeat(140001));
   throwsCode(() => store.buildIndex(), 'INVALID_RECORD');
   throwsCode(() => store.search('x'), 'INVALID_RECORD');
   throwsCode(() => store.read({ id: 'oversized' }), 'INVALID_RECORD');
   fs.unlinkSync(topic(root, 'oversized'));
-  write(root, '.pi/memory/topics/bad-header.md', '---\n{"bad":true}\n---\nbody');
+  write(root, '.project-memory/topics/bad-header.md', '---\n{"bad":true}\n---\nbody');
   throwsCode(() => store.list(), 'INVALID_RECORD');
   fs.unlinkSync(topic(root, 'bad-header'));
   store.upsert(input('bad-body'));
@@ -419,18 +419,18 @@ test('memory-store: atomic write failure preserves live topic and releases own l
   try { throwsCode(() => store.upsert(input(undefined, { summary: 'new summary', expectedRevision: 1 })), 'EIO'); }
   finally { fs.renameSync = original; }
   assert.equal(fs.readFileSync(topic(root), 'utf8'), before);
-  assert.equal(fs.existsSync(path.join(root, '.pi/memory-state/store.lock')), false);
+  assert.equal(fs.existsSync(path.join(root, '.project-memory/store.lock')), false);
   assert.deepEqual(fs.readdirSync(path.dirname(topic(root))), ['scheduler-cancellation.md']);
   assert.equal(store.upsert(input(undefined, { summary: 'retry summary', expectedRevision: 1 })).revision, 2);
 });
 
 test('memory-store: existing locks are bounded and never stolen, including apparently stale locks', t => {
   const { root, store } = project(t);
-  write(root, '.pi/memory-state/store.lock', '{"pid":999999999}');
+  write(root, '.project-memory/store.lock', '{"pid":999999999}');
   for (const action of [() => store.upsert(input()), () => store.writeHandoff({ content: 'blocked' }), () => store.forget({ id: 'missing', expectedRevision: 1 })]) throwsCode(action, 'STORE_LOCKED');
-  assert.equal(fs.readFileSync(path.join(root, '.pi/memory-state/store.lock'), 'utf8'), '{"pid":999999999}');
+  assert.equal(fs.readFileSync(path.join(root, '.project-memory/store.lock'), 'utf8'), '{"pid":999999999}');
   assert.deepEqual(store.list().records, []);
-  assert.equal(fs.existsSync(path.join(root, '.pi/memory/topics')), false);
+  assert.equal(fs.existsSync(path.join(root, '.project-memory/topics')), false);
 });
 
 test('memory-store: competing processes cannot silently overwrite a revision', async t => {
@@ -472,7 +472,7 @@ test('memory-store: corrupt retained recovery history cannot silently reset revi
   const { root, store } = project(t);
   store.upsert(input('history'));
   const { recoveryId } = store.forget({ id: 'history', expectedRevision: 1 });
-  write(root, `.pi/memory/recovery/${recoveryId}.json`, '{"corrupt":true}');
+  write(root, `.project-memory/recovery/${recoveryId}.json`, '{"corrupt":true}');
   throwsCode(() => store.upsert(input('history', { content: 'new incarnation' })), 'INVALID_RECORD');
   assert.equal(fs.existsSync(topic(root, 'history')), false);
   assert.equal(store.list().total, 0, 'ordinary reads never scan recovery');
@@ -511,7 +511,7 @@ test('memory-store: symlinked recovery directory cannot remove a live topic', t 
   store.upsert(input());
   const outside = path.join(root, 'outside-recovery');
   fs.mkdirSync(outside);
-  fs.symlinkSync(outside, path.join(root, '.pi/memory/recovery'));
+  fs.symlinkSync(outside, path.join(root, '.project-memory/recovery'));
   throwsCode(() => store.forget({ id: 'scheduler-cancellation', expectedRevision: 1 }), 'UNSAFE_PATH');
   assert.equal(store.read({ id: 'scheduler-cancellation' }).revision, 1);
   assert.deepEqual(fs.readdirSync(outside), []);

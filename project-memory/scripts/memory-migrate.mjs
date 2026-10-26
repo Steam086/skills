@@ -172,7 +172,8 @@ if (options.apply) {
     assertPath(entry.source);
     const sourcePath = path.join(root, entry.source);
     const sourceStat = fs.lstatSync(sourcePath);
-    if (!sourceStat.isFile() || sourceStat.isSymbolicLink() || sourceStat.nlink !== 1 || digest(fs.readFileSync(sourcePath)) !== entry.sha256) {
+    const sourceHash = legacyQmdConfigHashes[entry.source] ?? entry.sha256;
+    if (!sourceStat.isFile() || sourceStat.isSymbolicLink() || sourceStat.nlink !== 1 || digest(fs.readFileSync(sourcePath)) !== sourceHash) {
       throw new Error(`Legacy source ${entry.source} changed during migration planning; no files copied.`);
     }
   }

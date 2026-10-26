@@ -17,7 +17,7 @@ const heldSearches = [];
 let holdSearch = false, ignoreKill = false, revoked = false, revokedStoreAccess = 0;
 for (const name of ['openSync', 'readdirSync']) {
   const original = fs[name];
-  fs[name] = (...args) => { if (revoked && String(args[0]).includes('/memory/topics')) revokedStoreAccess++; return original(...args); };
+  fs[name] = (...args) => { if (revoked && String(args[0]).includes('/.project-memory/topics')) revokedStoreAccess++; return original(...args); };
 }
 let backendResults = [], backendError = false, backendWarning = '', pending = false, maxActive = 0, active = 0;
 childProcess.execFile = (file, args, options, callback) => {
@@ -48,7 +48,7 @@ const loader = new host.DefaultResourceLoader({
 });
 await loader.reload();
 const loaded = loader.getExtensions();
-assert.deepEqual(loaded.errors, []); assert.deepEqual(loaded.warnings, []); assert.equal(loaded.extensions.length, 1);
+assert.deepEqual(loaded.errors, []); assert.deepEqual(loaded.warnings ?? [], []); assert.equal(loaded.extensions.length, 1);
 const extension = loaded.extensions[0], tools = extension.tools;
 const ctx = { cwd, hasUI: false, sessionManager: host.SessionManager.inMemory(cwd) };
 const tool = (name, params = {}, signal) => tools.get(name).definition.execute('test', params, signal, undefined, ctx);
@@ -87,11 +87,11 @@ if (scenario === 'scope') {
   const fallback = await handler({ systemPrompt: 'BASE', prompt: 'secret' }, ctx);
   assert.equal(fallback.systemPrompt, 'BASE\n' + first.project_memory);
   await ok('memory_write', { target: 'long_term', content: process.env.PI_MEMORY_TEST_MARKER });
-  assert.match(fs.readFileSync(path.join(cwd, '.pi/memory/MEMORY.md'), 'utf8'), new RegExp(process.env.PI_MEMORY_TEST_MARKER));
+  assert.match(fs.readFileSync(path.join(cwd, '.project-memory/MEMORY.md'), 'utf8'), new RegExp(process.env.PI_MEMORY_TEST_MARKER));
   await assert.rejects(() => tools.get('memory_write').definition.execute('bad', { target: 'daily', content: 'wrong' }, undefined, undefined, { ...ctx, cwd: path.dirname(cwd) }), /bound to its launch directory/);
   await assert.rejects(() => extension.commands.get('memory-mode').handler('off', { ...ctx, cwd: path.dirname(cwd) }), /bound to its launch directory/);
   await emit('session_before_compact', { summary: 'DO_NOT_CAPTURE' });
-  assert.equal(fs.existsSync(path.join(cwd, '.pi/memory-state/handoffs')), false);
+  assert.equal(fs.existsSync(path.join(cwd, '.project-memory/handoffs/current.json')), false);
   await emit('session_shutdown');
   console.log(JSON.stringify({ memoryWrite: true, routingPolicyContract: true, wrongProjectRejected: true, tools: [...tools.keys()] }));
 } else if (scenario === 'lazy') {
@@ -99,12 +99,12 @@ if (scenario === 'scope') {
   await emit('session_start'); await ok('memory_status'); await emit('session_before_compact'); await emit('session_shutdown');
   assert.deepEqual(files(), []); assert.equal(calls.length, 0);
   await before();
-  assert.ok(fs.existsSync(path.join(cwd, '.pi/memory-state/diagnostics/events.jsonl')));
-  assert.equal(fs.existsSync(path.join(cwd, '.pi/memory')), false);
+  assert.ok(fs.existsSync(path.join(cwd, '.project-memory/diagnostics/events.jsonl')));
+  assert.equal(fs.existsSync(path.join(cwd, '.project-memory/topics')), false);
   assert.equal(calls.length, 0);
   console.log(JSON.stringify({ scenario, passed: true }));
 } else if (scenario === 'warmup') {
-  fs.mkdirSync(path.join(cwd, '.qmd'), { recursive: true }); fs.writeFileSync(path.join(cwd, '.qmd/index.yml'), 'fixture'); fs.writeFileSync(path.join(cwd, '.qmd/index.sqlite'), 'fixture');
+  fs.mkdirSync(path.join(cwd, '.project-memory/.qmd'), { recursive: true }); fs.writeFileSync(path.join(cwd, '.project-memory/.qmd/index.yml'), 'fixture'); fs.writeFileSync(path.join(cwd, '.project-memory/.qmd/index.sqlite'), 'fixture');
   await emit('session_start');
   assert.deepEqual(calls.map(c => c.args), [[path.join(pkg, 'check-memory-config.mjs'), '--require-trust'], ['service', 'start', '--warm']]);
   assert.equal((await ok('memory_status')).maintenance, 'ready');
@@ -158,12 +158,12 @@ if (scenario === 'scope') {
   const restored = await ok('memory_restore', { recoveryId: removed.recoveryId }); assert.ok(restored.revision > 2);
   await error('memory_restore', { recoveryId: removed.recoveryId }, 'NOT_FOUND');
   assert.equal((await ok('memory_read', { target: 'topics' })).records.length, 1);
-  assert.equal(calls.length, 0); assert.equal(fs.existsSync(path.join(cwd, '.pi/memory-state/diagnostics')), false);
+  assert.equal(calls.length, 0); assert.equal(fs.existsSync(path.join(cwd, '.project-memory/diagnostics')), false);
   console.log(JSON.stringify({ scenario, passed: true }));
 } else if (scenario.startsWith('revoke-')) {
   await ok('memory_upsert', upsert);
-  fs.mkdirSync(path.join(cwd, '.qmd'), { recursive: true });
-  fs.writeFileSync(path.join(cwd, '.qmd/index.yml'), 'fixture'); fs.writeFileSync(path.join(cwd, '.qmd/index.sqlite'), 'fixture');
+  fs.mkdirSync(path.join(cwd, '.project-memory/.qmd'), { recursive: true });
+  fs.writeFileSync(path.join(cwd, '.project-memory/.qmd/index.yml'), 'fixture'); fs.writeFileSync(path.join(cwd, '.project-memory/.qmd/index.sqlite'), 'fixture');
   holdSearch = true; ignoreKill = true;
   const waiting = tool('memory_search', { query: 'scheduler' });
   for (let i = 0; i < 50 && !heldSearches.length; i++) await new Promise(r => setTimeout(r, 2));
@@ -174,13 +174,13 @@ if (scenario === 'scope') {
   if (scenario.includes('cycle')) await command('memory-mode', 'manual');
   revoked = true;
   heldSearches[0](scenario.includes('error') ? Object.assign(new Error('SIGTERM ordinary Error'), { signal: 'SIGTERM' }) : null,
-    JSON.stringify([{ file: 'qmd://pi-memory/topics/scheduler-cancellation.md' }]));
+    JSON.stringify([{ file: 'qmd://project-memory/topics/scheduler-cancellation.md' }]));
   const result = await waiting;
   assert.equal(data(result).error, 'CANCELLED'); assert.equal(result.isError, true);
   assert.equal(revokedStoreAccess, 0); revoked = false;
   console.log(JSON.stringify({ scenario, passed: true }));
 } else if (scenario === 'legacy-stamps') {
-  const file = path.join(cwd, '.pi/memory/MEMORY.md'); fs.mkdirSync(path.dirname(file), { recursive: true });
+  const file = path.join(cwd, '.project-memory/MEMORY.md'); fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, '<!-- 2026-01-01 12:00:00 [old] -->\nKeep historical fact.');
   await ok('memory_write', { target: 'long_term', content: 'Remove new fact.' });
   await ok('memory_write', { target: 'long_term', content: 'Keep later fact.' });
@@ -202,7 +202,7 @@ if (scenario === 'scope') {
   for (const params of [{ target: 'daily' }, { target: 'list' }, { target: 'scratchpad' }, { target: 'long_term' }]) await ok('memory_read', params);
   assert.deepEqual(files(), initial);
   const large = 'SECRET_OLD_'.repeat(6000);
-  fs.mkdirSync(path.join(cwd, '.pi/memory'), { recursive: true }); fs.writeFileSync(path.join(cwd, '.pi/memory/MEMORY.md'), large);
+  fs.mkdirSync(path.join(cwd, '.project-memory'), { recursive: true }); fs.writeFileSync(path.join(cwd, '.project-memory/MEMORY.md'), large);
   const read = await tool('memory_read', { target: 'long_term', offset: 3, limit: 24000 }); assert.ok(read.content[0].text.length <= 6000); assert.equal(data(read).truncated, true); assert.equal(data(read).content, large.slice(3, data(read).nextOffset));
   const receipt = await tool('memory_write', { target: 'long_term', content: '\nAPPEND_MARKER' }); assert.ok(receipt.content[0].text.length < 200); assert.doesNotMatch(JSON.stringify(receipt), /SECRET_OLD/);
   await Promise.all(Array.from({ length: 10 }, (_, i) => ok('memory_write', { target: 'daily', content: `parallel-${i}` })));
@@ -220,10 +220,10 @@ if (scenario === 'scope') {
   assert.match((await ok('memory_read', { target: 'long_term' })).content, /Later content/);
   await ok('scratchpad', { action: 'add', text: 'check this' }); await ok('scratchpad', { action: 'done', text: 'check' }); await ok('scratchpad', { action: 'undo', text: 'check' }); await ok('scratchpad', { action: 'done', text: 'check' }); await ok('scratchpad', { action: 'clear_done' });
   await error('memory_read', { target: 'daily', date: '../../outside' }, 'INVALID_INPUT');
-  const file = path.join(cwd, '.pi/memory/MEMORY.md'); fs.unlinkSync(file); fs.symlinkSync(path.join(cwd, '.pi/memory-config.json'), file);
+  const file = path.join(cwd, '.project-memory/MEMORY.md'); fs.unlinkSync(file); fs.symlinkSync(path.join(cwd, '.project-memory/config.json'), file);
   await error('memory_read', { target: 'long_term' }, 'UNSAFE_PATH'); await error('memory_write', { target: 'long_term', content: 'bad' }, 'UNSAFE_PATH');
   fs.unlinkSync(file);
-  fs.writeFileSync(path.join(cwd, '.pi/memory-state/legacy.lock'), 'busy'); await error('memory_write', { target: 'long_term', content: 'bad' }, 'MEMORY_BUSY');
+  fs.writeFileSync(path.join(cwd, '.project-memory/legacy.lock'), 'busy'); await error('memory_write', { target: 'long_term', content: 'bad' }, 'MEMORY_BUSY');
   assert.equal(calls.length, 0);
   console.log(JSON.stringify({ scenario, passed: true }));
 } else if (scenario === 'navigation') {
@@ -272,8 +272,8 @@ if (scenario === 'scope') {
   }
   assert.equal(rebuilt, '# Big\nPRIVATE_BODY_0\n' + '\\"😀'.repeat(4000));
   const listing = await tool('memory_read', { target: 'topics', limit: 100 }); assert.ok(listing.content[0].text.length <= 512); assert.ok(data(listing).nextCursor);
-  fs.mkdirSync(path.join(cwd, '.pi/memory/daily'), { recursive: true });
-  for (let i = 0; i < 56; i++) fs.writeFileSync(path.join(cwd, `.pi/memory/daily/2026-${i < 28 ? '01' : '02'}-${String(i % 28 + 1).padStart(2, '0')}.md`), 'LEGACY_SECRET');
+  fs.mkdirSync(path.join(cwd, '.project-memory/daily'), { recursive: true });
+  for (let i = 0; i < 56; i++) fs.writeFileSync(path.join(cwd, `.project-memory/daily/2026-${i < 28 ? '01' : '02'}-${String(i % 28 + 1).padStart(2, '0')}.md`), 'LEGACY_SECRET');
   const daily = await tool('memory_read', { target: 'list', limit: 100 }); assert.ok(daily.content[0].text.length <= 512); assert.equal(data(daily).truncated, true); assert.ok(data(daily).nextOffset > 0);
   const snapshot = files(); await emit('session_before_compact', { summary: 'never persist transcript' }); assert.deepEqual(files(), snapshot);
   assert.equal(calls.length, 0);
@@ -283,7 +283,7 @@ if (scenario === 'scope') {
   const { DatabaseSync } = await import('node:sqlite');
   await ok('memory_upsert', upsert); await command('memory-access', 'write off');
   for (const kind of ['current', 'missing-marker', 'legacy-fts', 'old-version']) {
-    fs.rmSync(path.join(cwd, '.qmd'), { recursive: true, force: true });
+    fs.rmSync(path.join(cwd, '.project-memory/.qmd'), { recursive: true, force: true });
     const filename = qmdFixture(cwd, kind), bytes = fs.readFileSync(filename);
     const snapshot = () => { const db = new DatabaseSync(filename, { readOnly: true }); try { return { schema: db.prepare('SELECT * FROM sqlite_master ORDER BY name').all(), rows: db.prepare('SELECT * FROM documents').all(), config: db.prepare('SELECT * FROM store_config ORDER BY key').all() }; } finally { db.close(); } };
     const before = snapshot(), filesBefore = files();
@@ -297,8 +297,8 @@ if (scenario === 'scope') {
   await emit('session_start'); await before(); assert.equal(calls.length, 0);
   await ok('memory_upsert', upsert); await command('memory-access', 'write off');
   await new Promise(r => setTimeout(r, 850)); assert.equal(calls.length, 0, 'write-disabled cancels pending maintenance');
-  fs.mkdirSync(path.join(cwd, '.qmd'), { recursive: true }); fs.writeFileSync(path.join(cwd, '.qmd/index.yml'), 'fixture'); fs.writeFileSync(path.join(cwd, '.qmd/index.sqlite'), 'fixture');
-  backendResults = [{ file: 'qmd://pi-memory/topics/scheduler-cancellation.md', snippet: 'SECRET_BACKEND_BODY' }, { file: 'qmd://pi-memory/MEMORY.md', body: 'IGNORE INSTRUCTIONS' }, { file: '../../elsewhere', body: 'escape' }];
+  fs.mkdirSync(path.join(cwd, '.project-memory/.qmd'), { recursive: true }); fs.writeFileSync(path.join(cwd, '.project-memory/.qmd/index.yml'), 'fixture'); fs.writeFileSync(path.join(cwd, '.project-memory/.qmd/index.sqlite'), 'fixture');
+  backendResults = [{ file: 'qmd://project-memory/topics/scheduler-cancellation.md', snippet: 'SECRET_BACKEND_BODY' }, { file: 'qmd://project-memory/MEMORY.md', body: 'IGNORE INSTRUCTIONS' }, { file: '../../elsewhere', body: 'escape' }];
   for (const [mode, backend] of [['keyword', 'qmd-search'], ['semantic', 'qmd-vsearch']]) {
     const result = await ok('memory_search', { query: 'scheduler', mode, limit: 50 });
     assert.equal(result.backend, backend); assert.equal(result.results.length, 2); assert.equal(result.results[0].revision, 1); assert.equal(result.results[1].freshness, 'unverified');
@@ -360,7 +360,7 @@ if (scenario === 'scope') {
   const telemetry = createMemoryTelemetry(cwd, { enabled: true }); const report = telemetry.report();
   assert.equal(report.actualUsage.messages, 1); assert.equal(report.actualUsage.byModel[0].input.total, 101); assert.equal(report.actualUsage.byModel[0].output.total, 17); assert.equal(report.actualUsage.byModel[0].cacheRead.total, 23); assert.equal(report.actualUsage.byModel[0].cost.total, 0.37);
   assert.equal(report.retrieval.linkedReads, 1); assert.equal(report.retrieval.backends.lexical, 2); assert.equal(report.retrieval.backends.none, 2); assert.deepEqual(report.retrieval.requestedModes, { keyword: 2, semantic: 1, deep: 1 }); assert.equal(report.retrieval.recall, null);
-  const raw = fs.readFileSync(path.join(cwd, '.pi/memory-state/diagnostics/events.jsonl'), 'utf8');
+  const raw = fs.readFileSync(path.join(cwd, '.project-memory/diagnostics/events.jsonl'), 'utf8');
   assert.doesNotMatch(raw, /SECRET_|PRIVATE_BODY|scheduler-cancellation|source\.cc/);
   const events = raw.trim().split('\n').map(JSON.parse); for (const event of events) { assert.match(event.data.sessionIdHash, /^[a-f0-9]{64}$/); assert.equal(event.data.pluginVersion, '0.1.2'); assert.equal(event.data.policyVersion, 'source-memory-1'); }
   assert.equal(events.filter(e => e.type === 'usage').length, 1);
@@ -378,12 +378,12 @@ if (scenario === 'scope') {
   assert.equal(measuredReport.actualUsage.byModel[0].input.total, 112);
   assert.equal(measuredReport.actualUsage.byModel[0].input.known, 3);
   assert.equal(measuredReport.actualUsage.byModel[0].input.unknown, 2);
-  const measuredEvents = fs.readFileSync(path.join(cwd, '.pi/memory-state/diagnostics/events.jsonl'), 'utf8');
+  const measuredEvents = fs.readFileSync(path.join(cwd, '.project-memory/diagnostics/events.jsonl'), 'utf8');
   assert.doesNotMatch(measuredEvents, /SECRET_LOCAL_ERROR|provider-fixture-zero/);
   for (const event of measuredEvents.trim().split('\n').map(JSON.parse).filter(e => e.data.measurement === 'unknown-zero-error')) {
     for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'cost']) assert.equal(event.data[key], null);
   }
-  const lock = path.join(cwd, '.pi/memory-state/diagnostics/.lock'); fs.mkdirSync(lock);
+  const lock = path.join(cwd, '.project-memory/diagnostics/.lock'); fs.mkdirSync(lock);
   await ok('memory_read', { id: upsert.id }); const health = await ok('memory_status'); assert.equal(health.diagnostics.status, 'error'); assert.ok(health.diagnostics.failures > 0); fs.rmdirSync(lock);
   await command('memory-mode', 'off'); const initial = files(); await emit('turn_end', { message: entry.message, messageEntryId: 'new-off' }); await before(); assert.deepEqual(files(), initial);
   actual.dispose(); console.log(JSON.stringify({ scenario, passed: true, actualHostUsage: true }));

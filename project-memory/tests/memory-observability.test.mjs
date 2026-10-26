@@ -9,7 +9,7 @@ import { DEFAULT_CONFIG, loadMemoryConfig, loadMemoryPreferences, saveMemoryConf
 import { createMemoryTelemetry, TELEMETRY_EVENT_FIELDS, TELEMETRY_SCHEMA_VERSION } from '../lib/memory-telemetry.mjs';
 
 const pkg = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const diagnostics = '.pi/memory-state/diagnostics';
+const diagnostics = '.project-memory/diagnostics';
 function temporary(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-observability-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -39,7 +39,7 @@ test('memory-config: loadMemoryPreferences preserves validated off-mode base fla
   assert.equal(manual.writeEnabled, true);
   assert.equal(manual.readEnabled, false);
   assert.equal(manual.warmup, true);
-  write(root, '.pi/memory-config.json', '{"version":1,"extra":true}');
+  write(root, '.project-memory/config.json', '{"version":1,"extra":true}');
   assert.throws(() => loadMemoryPreferences(root), /unknown/);
 });
 
@@ -63,8 +63,8 @@ test('memory-config: partial atomic saves retain preferences; off disables every
   assert.equal(restored.warmup, true); assert.equal(restored.writeEnabled, true);
   assert.equal(restored.readEnabled, false); assert.equal(restored.diagnostics.enabled, true);
   assert.equal(restored.diagnostics.maxFiles, 2);
-  assert.equal(fs.statSync(path.join(root, '.pi/memory-config.json')).mode & 0o777, 0o600);
-  assert.deepEqual(files(root), ['.pi/memory-config.json']);
+  assert.equal(fs.statSync(path.join(root, '.project-memory/config.json')).mode & 0o777, 0o600);
+  assert.deepEqual(files(root), ['.project-memory/config.json']);
   assert.equal(resolveMemoryConfig(restored, { diagnostics: { enabled: false } }).diagnostics.maxFiles, 2);
 });
 
@@ -76,30 +76,30 @@ test('memory-config: unknown fields, types, versions and out-of-range budgets fa
   }
   assert.deepEqual(fs.readdirSync(root), []);
   for (const content of ['{', '{}', '{"version":2}', '{"version":1,"typo":true}', '[]']) {
-    write(root, '.pi/memory-config.json', content);
+    write(root, '.project-memory/config.json', content);
     assert.throws(() => loadMemoryConfig(root), /Invalid memory configuration/);
     assert.throws(() => saveMemoryConfig(root, { mode: 'manual' }), /Invalid memory configuration/);
-    assert.equal(fs.readFileSync(path.join(root, '.pi/memory-config.json'), 'utf8'), content);
+    assert.equal(fs.readFileSync(path.join(root, '.project-memory/config.json'), 'utf8'), content);
   }
-  write(root, '.pi/memory-config.json', ' '.repeat(16385));
+  write(root, '.project-memory/config.json', ' '.repeat(16385));
   assert.throws(() => loadMemoryConfig(root), /oversized/);
 });
 
 test('memory-config: symlinked roots, ancestors, config and hardlinks never escape', t => {
   const base = temporary(t), outside = path.join(base, 'outside'); fs.mkdirSync(outside);
-  for (const target of ['.pi', '.pi/memory-config.json']) {
+  for (const target of ['.project-memory', '.project-memory/config.json']) {
     const root = fs.mkdtempSync(path.join(base, 'consumer-'));
     fs.mkdirSync(path.dirname(path.join(root, target)), { recursive: true });
-    const destination = target === '.pi' ? outside : path.join(outside, 'config.json');
-    if (target !== '.pi') fs.writeFileSync(destination, '{"version":1}');
+    const destination = target === '.project-memory' ? outside : path.join(outside, 'config.json');
+    if (target !== '.project-memory') fs.writeFileSync(destination, '{"version":1}');
     fs.symlinkSync(destination, path.join(root, target));
     assert.throws(() => loadMemoryConfig(root), /symlinks/);
     assert.throws(() => saveMemoryConfig(root, {}), /symlinks/);
   }
   fs.symlinkSync(outside, path.join(base, 'root-link'));
   assert.throws(() => loadMemoryConfig(path.join(base, 'root-link')), /symlinks/);
-  const root = path.join(base, 'hardlink'); fs.mkdirSync(root); fs.mkdirSync(path.join(root, '.pi'));
-  fs.linkSync(path.join(outside, 'config.json'), path.join(root, '.pi/memory-config.json'));
+  const root = path.join(base, 'hardlink'); fs.mkdirSync(root); fs.mkdirSync(path.join(root, '.project-memory'));
+  fs.linkSync(path.join(outside, 'config.json'), path.join(root, '.project-memory/config.json'));
   assert.throws(() => saveMemoryConfig(root, {}), /private regular file/);
   assert.deepEqual(fs.readdirSync(outside), ['config.json']);
   assert.equal(fs.readFileSync(path.join(outside, 'config.json'), 'utf8'), '{"version":1}');
@@ -107,10 +107,10 @@ test('memory-config: symlinked roots, ancestors, config and hardlinks never esca
 
 test('memory-config: occupied locks are never stolen or removed', t => {
   const root = temporary(t);
-  fs.mkdirSync(path.join(root, '.pi/.memory-config.lock'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.project-memory/config-lock'), { recursive: true });
   assert.throws(() => saveMemoryConfig(root, {}), /busy/);
-  assert.equal(fs.existsSync(path.join(root, '.pi/.memory-config.lock')), true);
-  assert.equal(fs.existsSync(path.join(root, '.pi/memory-config.json')), false);
+  assert.equal(fs.existsSync(path.join(root, '.project-memory/config-lock')), true);
+  assert.equal(fs.existsSync(path.join(root, '.project-memory/config.json')), false);
 });
 
 test('memory-telemetry: construction and absent reports are lazy; off/disabled do no I/O even on missing roots', t => {
@@ -238,7 +238,7 @@ test('memory-telemetry: lowering byte budget discards oversized old logs before 
 test('memory-telemetry: every state symlink and hardlinked log fails nonfatally without outside changes', t => {
   const base = temporary(t), outside = path.join(base, 'outside'); fs.mkdirSync(outside);
   fs.writeFileSync(path.join(outside, 'sentinel'), 'not modified');
-  for (const target of ['.pi', '.pi/memory-state', diagnostics, `${diagnostics}/salt`, `${diagnostics}/events.jsonl`, `${diagnostics}/events.9.jsonl`, `${diagnostics}/.lock`]) {
+  for (const target of ['.project-memory', diagnostics, `${diagnostics}/salt`, `${diagnostics}/events.jsonl`, `${diagnostics}/events.9.jsonl`, `${diagnostics}/.lock`]) {
     const root = fs.mkdtempSync(path.join(base, 'consumer-'));
     fs.mkdirSync(path.dirname(path.join(root, target)), { recursive: true });
     const destination = target.endsWith('salt') || target.endsWith('.jsonl') ? path.join(outside, 'sentinel') : outside;
@@ -288,7 +288,7 @@ test('memory-observability CLIs: explicit config, read-only absent report, off a
   assert.equal(loadMemoryConfig(root).mode, 'code-research'); assert.equal(loadMemoryConfig(root).readEnabled, false);
   result = cli('memory-report.mjs', [], root);
   assert.equal(result.status, 0); assert.equal(JSON.parse(result.stdout).status, 'disabled');
-  assert.deepEqual(files(root), ['.pi/memory-config.json']);
+  assert.deepEqual(files(root), ['.project-memory/config.json']);
   assert.notEqual(cli('memory-config.mjs', ['--write', 'maybe'], root).status, 0);
   assert.notEqual(cli('memory-config.mjs', ['--typo', 'value'], root).status, 0);
   assert.notEqual(cli('memory-report.mjs', ['--warmup'], root).status, 0);
@@ -325,7 +325,7 @@ test('memory-observability: failed atomic replacement leaves prior config/log in
   const root = temporary(t), telemetry = createMemoryTelemetry(root);
   saveMemoryConfig(root, { mode: 'manual' });
   telemetry.record('write', { outcome: 'created' });
-  const configPath = path.join(root, '.pi/memory-config.json');
+  const configPath = path.join(root, '.project-memory/config.json');
   const logPath = path.join(root, diagnostics, 'events.jsonl');
   const previousConfig = fs.readFileSync(configPath, 'utf8'), previousLog = fs.readFileSync(logPath, 'utf8');
   const originalRename = fs.renameSync;

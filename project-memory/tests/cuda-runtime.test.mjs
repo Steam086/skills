@@ -35,7 +35,7 @@ test('local CUDA SONAME setup is idempotent and clean-shell consumers inherit it
   assert.equal(launched.status, 0, launched.stderr);
   const values = JSON.parse(launched.stdout);
   assert.equal(values.LD_LIBRARY_PATH, runtime);
-  assert.equal(values.PI_MEMORY_DIR, path.join(consumer, '.pi/memory'));
+  assert.equal(values.PI_MEMORY_DIR, path.join(consumer, '.project-memory'));
   const inherited = spawnSync(process.execPath, [path.join(code, 'memory-env.cjs')], { cwd: consumer, env: { ...env, LD_LIBRARY_PATH: '/vendor/lib' }, encoding: 'utf8' });
   assert.equal(inherited.status, 0, inherited.stderr);
   assert.equal(JSON.parse(inherited.stdout).LD_LIBRARY_PATH, runtime + path.delimiter + '/vendor/lib');

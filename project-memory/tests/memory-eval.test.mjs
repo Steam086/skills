@@ -141,7 +141,7 @@ test('memory-eval actual SDK registered search yields labeled lexical retrieval 
     assert.equal(report.telemetry.labeledSearches, 4);
     assert.equal(report.telemetry.recall, report.metrics.microRecallAtK);
     assert.ok(report.safety.every(check => check.passed));
-    for (const relative of ['.qmd', '.pi/qmd-state/service.json', '.pi/qmd-state/trusted.json']) assert.equal(fs.existsSync(path.join(report.fixtureRoot, relative)), false);
+    for (const relative of ['.project-memory/.qmd', '.project-memory/qmd-state/service.json', '.project-memory/qmd-state/trusted.json']) assert.equal(fs.existsSync(path.join(report.fixtureRoot, relative)), false);
     assert.equal(fs.existsSync(new URL('../.pi', import.meta.url)), false);
-  } finally { fs.rmSync(report.fixtureRoot, { recursive: true, force: true }); }
+  } finally { if (report.fixtureRoot) fs.rmSync(report.fixtureRoot, { recursive: true, force: true }); }
 });

@@ -37,8 +37,8 @@ test('package code is shared, all mutable paths are consumer-local', () => withP
     assert.match(missing.stderr, /missing cached embed/);
     const blocked = spawnSync(path.join(pkg, 'bin/qmd'), ['service', 'start', '--warm'], { cwd: root, encoding: 'utf8', env: { ...process.env, PI_MEMORY_PROJECT_ROOT: root } });
     assert.equal(blocked.status, 3, blocked.stderr);
-    assert.equal(fs.existsSync(path.join(root, '.pi/qmd-state/service.json')), false);
-    assert.equal(fs.existsSync(path.join(root, '.pi/qmd-state/service.log')), false);
+    assert.equal(fs.existsSync(path.join(root, '.project-memory/qmd-state/service.json')), false);
+    assert.equal(fs.existsSync(path.join(root, '.project-memory/qmd-state/service.log')), false);
     const status = spawnSync(path.join(pkg, 'bin/qmd'), ['service', 'status'], { cwd: root, encoding: 'utf8', env: { ...process.env, PI_MEMORY_PROJECT_ROOT: root } });
     assert.equal(status.status, 0, status.stderr);
     assert.equal(JSON.parse(status.stdout).running, false);
@@ -46,23 +46,23 @@ test('package code is shared, all mutable paths are consumer-local', () => withP
     assert.equal(stop.status, 0, stop.stderr);
     const hour = run(root, 'memory-env.cjs', [], { PI_MEMORY_MODEL_IDLE_MINUTES: '60' });
     assert.equal(JSON.parse(hour.stdout).PI_MEMORY_MODEL_IDLE_MINUTES, '60');
-    const keyword = spawnSync(path.join(pkg, 'bin/qmd'), ['search', 'example', '--json', '-c', 'pi-memory'], { cwd: root, encoding: 'utf8', env: { ...process.env, PI_MEMORY_PROJECT_ROOT: root } });
+    const keyword = spawnSync(path.join(pkg, 'bin/qmd'), ['search', 'example', '--json', '-c', 'project-memory'], { cwd: root, encoding: 'utf8', env: { ...process.env, PI_MEMORY_PROJECT_ROOT: root } });
     assert.equal(keyword.status, 0, keyword.stderr);
     assert.deepEqual(JSON.parse(keyword.stdout), []);
-    assert.ok(fs.existsSync(path.join(root, '.qmd/index.sqlite')));
+    assert.ok(fs.existsSync(path.join(root, '.project-memory/.qmd/index.sqlite')));
     const override = spawnSync(path.join(pkg, 'bin/qmd'), ['search', 'example', '--index', path.join(pkg, 'wrong.sqlite')], { cwd: root, encoding: 'utf8', env: { ...process.env, PI_MEMORY_PROJECT_ROOT: root } });
     assert.equal(override.status, 2);
     assert.equal(fs.existsSync(path.join(pkg, 'wrong.sqlite')), false);
   }
   assert.equal(fs.existsSync(path.join(pkg, '.pi')), false);
 }));
-test('setup rejects differing config and symlinked state without overwrite', () => withProjects((a, b) => {
-  fs.mkdirSync(path.join(a, '.qmd'));
-  fs.writeFileSync(path.join(a, '.qmd/index.yml'), 'collections: {}\n');
+test('setup preserves custom config and rejects symlinked state without overwrite', () => withProjects((a, b) => {
+  fs.mkdirSync(path.join(a, '.project-memory/.qmd'), { recursive: true });
+  fs.writeFileSync(path.join(a, '.project-memory/.qmd/index.yml'), 'collections: {}\n');
   const result = run(a, 'scripts/memory-setup.mjs');
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /differs/);
-  assert.equal(fs.readFileSync(path.join(a, '.qmd/index.yml'), 'utf8'), 'collections: {}\n');
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /preserved/);
+  assert.equal(fs.readFileSync(path.join(a, '.project-memory/.qmd/index.yml'), 'utf8'), 'collections: {}\n');
   assert.equal(fs.existsSync(path.join(a, '.pi')), false);
   fs.symlinkSync(b, path.join(a, '.pi'));
   assert.match(run(a, 'memory-env.cjs').stderr, /must not use symlinks/);
@@ -79,11 +79,11 @@ test('actual Pi SDK loads stable routing policy and scoped legacy tools in proje
     assert.equal(result.status, 0, result.stderr);
     assert.equal(JSON.parse(result.stdout).memoryWrite, true);
     assert.equal(JSON.parse(result.stdout).routingPolicyContract, true);
-    assert.equal(fs.existsSync(path.join(root, '.pi/qmd-state/service.json')), false);
-    assert.equal(fs.existsSync(path.join(root, '.pi/qmd-state/trusted.json')), false);
+    assert.equal(fs.existsSync(path.join(root, '.project-memory/qmd-state/service.json')), false);
+    assert.equal(fs.existsSync(path.join(root, '.project-memory/qmd-state/trusted.json')), false);
   }
-  assert.doesNotMatch(fs.readFileSync(path.join(a, '.pi/memory/MEMORY.md'), 'utf8'), /PROJECT_B_ONLY/);
-  assert.doesNotMatch(fs.readFileSync(path.join(b, '.pi/memory/MEMORY.md'), 'utf8'), /PROJECT_A_ONLY/);
+  assert.doesNotMatch(fs.readFileSync(path.join(a, '.project-memory/MEMORY.md'), 'utf8'), /PROJECT_B_ONLY/);
+  assert.doesNotMatch(fs.readFileSync(path.join(b, '.project-memory/MEMORY.md'), 'utf8'), /PROJECT_A_ONLY/);
 }));
 for (const scenario of ['lazy', 'off', 'crud', 'legacy', 'legacy-stamps', 'revoke-read-success', 'revoke-off-error', 'revoke-cycle-success', 'revoke-shutdown-success', 'revoke-read-error', 'revoke-off-success', 'revoke-cycle-error', 'revoke-shutdown-error', 'qmd-readonly', 'navigation', 'budgets', 'qmd', 'warmup', 'telemetry']) {
   test(`project-memory runtime SDK: ${scenario}`, () => withProjects(a => {

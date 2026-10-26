@@ -10,7 +10,7 @@ const pkg = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 function client(root, stubDir) {
   return new Promise((resolve, reject) => {
     // Directly exercise the real bridge protocol; no trust or model provisioning.
-    const child = spawn(process.execPath, [path.join(pkg, 'qmd-service-client.mjs'), 'vsearch', '--json', '-c', 'pi-memory', 'example'], {
+    const child = spawn(process.execPath, [path.join(pkg, 'qmd-service-client.mjs'), 'vsearch', '--json', '-c', 'project-memory', 'example'], {
       cwd: root, env: { ...process.env, PI_MEMORY_PROJECT_ROOT: root, PATH: stubDir + path.delimiter + process.env.PATH },
     });
     let stdout = '', stderr = '';
@@ -28,7 +28,7 @@ test('real semanticSearch diagnostics traverse fake Unix socket and real client 
   let server;
   try {
     const { semanticSearch } = await import('../qmd-semantic.mjs');
-    const dir = path.join(root, '.pi/qmd-state');
+    const dir = path.join(root, '.project-memory/qmd-state');
     fs.mkdirSync(dir, { recursive: true });
     const stubDir = path.join(root, 'bin'); fs.mkdirSync(stubDir);
     const forbiddenStartup = path.join(root, 'unexpected-startup');
