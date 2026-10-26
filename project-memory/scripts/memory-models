@@ -2,7 +2,7 @@
 # Resolve the machine cache BEFORE memory-env redirects XDG_CACHE_HOME.
 set -euo pipefail
 PACKAGE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
-DEFAULT_MODEL_DIR="${PI_MEMORY_MODEL_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/project-memory/models}"
+DEFAULT_MODEL_DIR="${PROJECT_MEMORY_MODEL_DIR:-${PI_MEMORY_MODEL_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/project-memory/models}}"
 environment_shell="$(node "$PACKAGE/memory-env.cjs" --shell)" || exit $?
 eval "$environment_shell"
 exec python3 "$PACKAGE/scripts/memory-models.py" --default-model-dir "$DEFAULT_MODEL_DIR" "$@"

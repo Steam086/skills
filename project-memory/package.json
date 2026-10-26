@@ -3,7 +3,7 @@
   "version": "0.1.2",
   "private": true,
   "type": "module",
-  "description": "Project-scoped Pi memory and offline QMD retrieval",
+  "description": "Shared project memory for Pi and Codex with offline QMD retrieval",
   "keywords": [
     "pi-package"
   ],
@@ -16,9 +16,9 @@
     ]
   },
   "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
     "@tobilu/qmd": "2.8.3",
     "node-llama-cpp": "3.20.0",
-    "pi-memory": "0.4.2",
     "yaml": "2.9.0"
   },
   "peerDependencies": {

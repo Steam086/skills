@@ -11,7 +11,7 @@ import { formatQueryForEmbedding, setDefaultLlamaCpp } from './node_modules/@tob
 
 process.chdir(env.root);
 process.umask(0o077);
-const stateDir = path.join(env.root, '.pi/qmd-state');
+const stateDir = path.join(env.memoryDirectory, 'qmd-state');
 const socket = path.join(stateDir, 'qmd.sock');
 const metadata = path.join(stateDir, 'service.json');
 const token = randomBytes(32).toString('hex');
@@ -78,21 +78,20 @@ async function perform(body, warnings) {
   }
   if (action === 'semantic') return semanticSearch(store, query, { ...options, onWarning: message => warnings.push(message) });
   if (action === 'deep') {
-    const results = await store.search({ query, collection: 'pi-memory', limit: options.limit,
+    const results = await store.search({ query, collection: 'project-memory', limit: options.limit,
       minScore: options.minScore, candidateLimit: options.candidateLimit, rerank: options.rerank,
       explain: options.explain, intent: options.intent });
-    // Match the upstream CLI JSON contract consumed by pi-memory. SDK results
-    // use body/bestChunk, whereas pi-memory expects snippet/content/chunk.
+    // Match the QMD CLI JSON shape for the local service bridge.
     return results.map(r => {
       const snippet = extractSnippet(r.body, query, 300, r.bestChunkPos, undefined, options.intent);
       return { docid: '#' + r.docid, score: Math.round(r.score * 100) / 100,
-        file: options.fullPath ? path.join(env.values.PI_MEMORY_DIR, r.file.replace('qmd://pi-memory/', '')) : r.file,
+        file: options.fullPath ? path.join(env.memoryDirectory, r.file.replace('qmd://project-memory/', '')) : r.file,
         line: snippet.line, title: r.title, context: r.context,
         ...(options.full ? { body: r.body, content: r.body } : { snippet: snippet.snippet }),
         ...(options.explain && r.explain ? { explain: r.explain } : {}) };
     });
   }
-  if (action === 'update') return store.update({ collections: ['pi-memory'] });
+  if (action === 'update') return store.update({ collections: ['project-memory'] });
   if (action === 'embed') return store.embed({ force: !!options.force,
     maxDocsPerBatch: options.maxDocsPerBatch, maxBatchBytes: options.maxBatchBytes });
   throw new Error('Unsupported project QMD action');

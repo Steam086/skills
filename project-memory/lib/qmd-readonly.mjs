@@ -48,7 +48,7 @@ export async function readQmdIndex(filename, { query, limit = 5, checkOnly = fal
     if (checkOnly) return [];
     // Importing these pure search functions does not open a QMD store or load models.
     const { searchFTS } = await import('../node_modules/@tobilu/qmd/dist/store.js');
-    return searchFTS(db, query, limit, 'pi-memory')
+    return searchFTS(db, query, limit, 'project-memory')
       .filter(row => typeof row.filepath === 'string' && row.filepath.length <= 1024)
       .map(row => ({ file: row.filepath, score: row.score }));
   } finally { db.close(); }

@@ -8,7 +8,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   indexMaxChars: 1800, searchMaxChars: 2400, readMaxChars: 6000, searchLimit: 5,
   diagnostics: Object.freeze({ enabled: true, maxBytes: 1048576, maxFiles: 3 }),
 });
-const CONFIG_PATH = '.pi/memory-config.json';
+const CONFIG_PATH = '.project-memory/config.json';
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value)
   && [Object.prototype, null].includes(Object.getPrototypeOf(value));
 function invalid(message) { throw new Error(`Invalid memory configuration: ${message}`); }
@@ -146,7 +146,7 @@ export function saveMemoryConfig(root, patch) {
   merge(DEFAULT_CONFIG, patch);
   root = safeRoot(root);
   inspect(root, CONFIG_PATH);
-  return lock(root, '.pi/.memory-config.lock', () => {
+  return lock(root, '.project-memory/config-lock', () => {
     const config = merge(readConfig(root), patch);
     atomicWrite(root, CONFIG_PATH, `${JSON.stringify(config, null, 2)}\n`);
     return resolveMemoryConfig(config);

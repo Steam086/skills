@@ -1,4 +1,4 @@
-// CLI bridge actually used by pi-memory's qmd subprocesses.
+// CLI bridge used by the shared project's QMD subprocesses.
 import env from './memory-env.cjs';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { parseArgs } from 'node:util';
 
-const dir = path.join(env.root, '.pi/qmd-state');
+const dir = path.join(env.memoryDirectory, 'qmd-state');
 const stateFile = path.join(dir, 'service.json');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 function state() { try { const value = JSON.parse(fs.readFileSync(stateFile, 'utf8')); if (value.root === env.root && value.socket === path.join(dir, 'qmd.sock') && Number.isInteger(value.pid) && value.pid > 0 && /^[a-f0-9]{64}$/.test(value.token)) return value; } catch {} }
@@ -41,7 +41,7 @@ async function ensureService() {
     await sleep(100);
     try { await call('status'); return; } catch {}
   }
-  throw new Error('Cannot start project QMD SDK service; inspect .pi/qmd-state/service.log');
+  throw new Error('Cannot start project QMD SDK service; inspect .project-memory/qmd-state/service.log');
 }
 async function main() {
   const [command, ...args] = process.argv.slice(2);
@@ -72,7 +72,7 @@ async function main() {
       'candidate-limit': { type: 'string', short: 'C' }, 'no-rerank': { type: 'boolean' }, explain: { type: 'boolean' }, intent: { type: 'string' },
       force: { type: 'boolean', short: 'f' }, 'max-docs-per-batch': { type: 'string' }, 'max-batch-mb': { type: 'string' },
     }});
-    if (values.collection?.some(c => c !== 'pi-memory')) throw new Error('Only this project pi-memory collection is allowed.');
+    if (values.collection?.some(c => c !== 'project-memory')) throw new Error('Only this project-memory collection is allowed.');
     const format = values.json ? 'json' : values.files ? 'files' : values.format || 'cli';
     if (!['cli', 'json', 'files'].includes(format)) throw new Error('Supported bridge formats: cli, json, files. Use the native CLI for other formats.');
     const options = {

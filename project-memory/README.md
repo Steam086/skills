@@ -1,10 +1,10 @@
 # Project Memory
 
-A Pi package for project-local **source-code knowledge**, bounded Markdown retrieval, and optional local QMD search. It is intended for reusable analysis of large repositories: call chains, state machines, concurrency, ownership, and implementation constraints, not indiscriminate conversation capture. Runtime pins: pi-memory **0.4.2** (legacy tools), QMD **2.8.3**, node-llama-cpp **3.20.0**. The package declares Pi host peers; it does not bundle host classes. No license is declared for this adapter.
+Shared project memory for source-code knowledge, bounded Markdown retrieval, and optional local QMD search. Pi connects through an Extension and Codex CLI through a stdio MCP server; both call the same service, tools, policy Skill, and `<project>/.project-memory/` data. It is intended for reusable analysis of large repositories: call chains, state machines, concurrency, ownership, and implementation constraints, not indiscriminate conversation capture. Runtime pins: QMD **2.8.3**, MCP server **2.0.0**, and node-llama-cpp **3.20.0**. Pi host classes remain peer dependencies.
 
 ## Requirements
 
-Linux/Unix with Node.js >=22.19, npm, Bash, `flock`, and an installed Pi host compatible with pi-memory (>=0.81.1). GPU retrieval requires a compatible NVIDIA driver and CUDA libraries. The installer detects existing CUDA 12/13 toolkits (`CUDA_HOME`, `CUDA_PATH`, `/usr/local/cuda*`, `/opt/cuda`, `/data/local/cuda*`) and maps their runtime SONAMEs into the Git-ignored package `runtime/cuda/` directory. Plain Pi and CLI children inherit that loader path automatically, without fish/Bash profile edits. This does not install CUDA or change drivers/global loader settings. GPU compatibility still depends on the host and has not been established for every toolkit/platform.
+Node.js >=22.19, npm, Bash, and `flock` on Linux/Unix. Pi use also requires an installed Pi host; Codex use requires Codex CLI with local MCP support. GPU retrieval requires a compatible NVIDIA driver and CUDA libraries. The installer detects existing CUDA 12/13 toolkits (`CUDA_HOME`, `CUDA_PATH`, `/usr/local/cuda*`, `/opt/cuda`, `/data/local/cuda*`) and maps their runtime SONAMEs into the Git-ignored package `runtime/cuda/` directory. Pi and QMD child processes inherit that loader path automatically, without fish/Bash profile edits. This does not install CUDA or change drivers/global loader settings. GPU compatibility still depends on the host and has not been established for every toolkit/platform.
 
 ## Install and initialize
 
@@ -26,21 +26,43 @@ pi install --local "$PACKAGE"
 pi  # review/approve Pi project trust yourself if prompted
 ```
 
-This uses Pi's standard **local package** mechanism: the consumer's `.pi/settings.json` points to the shared package, whose manifest loads both `extensions/project-memory.ts` and `SKILL.md`. Do not copy the NCCL `.pi` directory, install only the skill, or enable upstream `pi-memory` directly. Local-path installs reuse this checkout and its dependencies; updates to it affect every consumer on its next Pi launch/reload. They are not pinned per consumer. Review updates and rerun the locked dependency installer after pulling.
+For a project with existing Pi memory, stop all Pi sessions and the old project's QMD service before migration. Inspect the copy plan, apply it, then run setup:
 
-The collection is a multi-skill repository, not a root-level Pi package. Do not use `pi install git:github.com/Steam086/skills` as if it selected this subdirectory. Clone/update the collection, then install its `project-memory` directory as above. For a one-off explicit load without persistent settings use `pi -e "$PACKAGE"`.
+```bash
+node "$PACKAGE/scripts/memory-migrate.mjs"       # dry run; writes nothing
+node "$PACKAGE/scripts/memory-migrate.mjs" --apply
+node "$PACKAGE/scripts/memory-setup.mjs"
+```
 
-The explicit setup creates empty project directories, `.qmd/index.yml`, and local `.pi/.gitignore` / `.qmd/.gitignore` protections. It preflights config and ignore-file safety before changes, preserves existing ignore rules and appends private-runtime rules last (idempotently). It refuses differing existing config and symlinked state, leaves existing memory unchanged, and does not grant trust, start services, edit the repository root `.gitignore`, or edit Pi settings. Run from the project root, not from the shared package or a subdirectory. `PI_MEMORY_PROJECT_ROOT` can explicitly select an absolute consumer root for scripts; the Pi session's `cwd` must match it.
+The migration retains legacy sources, refuses conflicting targets, records hashes, and does not copy the old SQLite index. Setup initializes `<project>/.project-memory/`, adds private local ignore rules, and copies the package `SKILL.md` to `.agents/skills/project-memory/SKILL.md` for Codex discovery. Review and explicitly trust QMD only after reviewing `.project-memory/.qmd/index.yml`.
+
+Rollback before new shared-memory writes is straightforward: stop both hosts and restore the prior package/settings; migration leaves every legacy source untouched. After cutover writes, copy those new records back to the old paths before starting an old package version. Never run old and new adapters together against one project.
+
+Pi uses its standard **local package** mechanism: the consumer's `.pi/settings.json` points to this package, whose manifest loads `extensions/project-memory.ts` and the root `SKILL.md`. Do not copy unrelated `.pi` state or enable another memory implementation alongside it. Local-path installs reuse this checkout and its dependencies; updates affect every consumer on its next Pi launch/reload. Review updates and rerun the locked dependency installer after pulling.
+
+For Codex, register the stdio MCP server in the Codex configuration used for the project (the paths below must be absolute):
+
+```toml
+[mcp_servers.project_memory]
+command = "node"
+args = ["/absolute/path/to/skills/project-memory/scripts/memory-mcp.mjs", "--root", "/absolute/path/to/your/project"]
+```
+
+Codex loads the same policy from `.agents/skills/project-memory/SKILL.md`; MCP exposes the same eight tools Pi uses. The server binds to the configured project root and never falls back to user-level memory. Add `"--mode", "off"`, `"--read", "off"`, or `"--write", "off"` to `args` for session-wide startup gates. To change persistent defaults, run `node "$PACKAGE/scripts/memory-config.mjs" --root /absolute/path/to/your/project ...` and restart the MCP process.
+
+The collection is a multi-skill repository, not a root-level Pi package. Do not use `pi install git:github.com/Steam086/skills` as if it selected this subdirectory. Clone/update the collection, then install its `project-memory` directory as above. For a one-off explicit Pi load without persistent settings use `pi -e "$PACKAGE"`.
+
+Setup creates the shared project directories and `.project-memory/.qmd/index.yml`. QMD 2.8.3 requires its local config folder to be named `.qmd`; QMD runs from `.project-memory/`, so the collection and index remain inside the shared memory root. Setup preserves existing custom QMD config for review, rejects symlinked state, leaves memory unchanged, and does not grant trust, start services, or edit host settings. Run from the project root, not from the package or a subdirectory. `PROJECT_MEMORY_PROJECT_ROOT` (or compatibility variable `PI_MEMORY_PROJECT_ROOT`) can explicitly select a consumer root for scripts; Pi's session `cwd` must match it.
 
 Setup and package registration do not grant Pi or QMD trust. `pi install --local` can refuse to modify configuration in an untrusted project. If it does, stop and review the target's configuration and project resources. The user can personally approve the project in Pi or explicitly authorize `pi install --local --approve "$PACKAGE"` for that one command; this flag does not save permanent trust. Do not silently add it to setup. Pi project trust and QMD config trust are separate approvals.
 
 The local package command preserves other Pi settings and does not copy code or install dependencies; the bundled installer installs the lockfile separately, skipping lifecycle scripts and automatic peer installation. No global Pi settings are changed. Avoid installing the package globally: opt each consumer in explicitly. Pi-managed git/npm installs use Pi's normal dependency installation behavior instead.
 
-For existing projects, do not layer this over an active project-local memory bootstrap or legacy `repo-memory` skill. Review and migrate conflicting implementations manually first; the standalone setup only validates its own state/config paths and is not the old NCCL `memory-deploy` migration tool.
+For existing projects, stop Pi sessions before migration. The migration command handles this package's prior `.pi/memory` format and QMD config; review any other memory bootstrap or legacy `repo-memory` skill separately before enabling it.
 
 ## Models and trust
 
-No retrieval path automatically provisions missing models. Review `.qmd/index.yml` and explicitly approve QMD trust before GPU retrieval:
+No retrieval path automatically provisions missing models. Review `.project-memory/.qmd/index.yml` and explicitly approve QMD trust before GPU retrieval:
 
 ```bash
 "$PACKAGE/scripts/qmd-memory" trust
@@ -48,11 +70,11 @@ No retrieval path automatically provisions missing models. Review `.qmd/index.ym
 "$PACKAGE/scripts/memory-index"        # update + incremental embedding
 ```
 
-`memory-models all` explicitly provisions the additional Deep models. Public revisions and SHA256 digests are pinned in `model-sources.json`; provisioning checks GGUF magic and SHA256. Runtime weights and aliases remain in the consumer's `.pi/cache/qmd/models`. Runtime checks reject missing/non-GGUF weights. There is no trust bypass. Keyword search needs no weights; semantic uses only Qwen embeddings through the SDK's `searchVector()`. Deep loads expansion and reranking models only when requested.
+`memory-models all` explicitly provisions the additional Deep models. Public revisions and SHA256 digests are pinned in `model-sources.json`; provisioning checks GGUF magic and SHA256. Runtime weights and aliases remain in `.project-memory/cache/qmd/models`. Runtime checks reject missing/non-GGUF weights. There is no trust bypass. Keyword search needs no weights; semantic uses only Qwen embeddings through the SDK's `searchVector()`. Deep loads expansion and reranking models only when requested.
 
 ### Portable shared model cache
 
-The model provisioner requires Python 3.8+; `hf` is only needed when downloading. Shared download/cache directory precedence is `--model-dir` > `PI_MEMORY_MODEL_DIR` > `${XDG_CACHE_HOME:-$HOME/.cache}/project-memory/models`. The wrapper resolves this **before** the runtime redirects XDG_CACHE_HOME into the project. These are machine-local choices, not absolute paths committed to project configuration.
+The model provisioner requires Python 3.8+; `hf` is only needed when downloading. Shared download/cache directory precedence is `--model-dir` > `PROJECT_MEMORY_MODEL_DIR` (or compatibility `PI_MEMORY_MODEL_DIR`) > `${XDG_CACHE_HOME:-$HOME/.cache}/project-memory/models`. The wrapper resolves this **before** the runtime redirects XDG_CACHE_HOME into the project. These are machine-local choices, not absolute paths committed to project configuration.
 
 ```bash
 # Explicit provisioning: reuse project/shared weights; download missing weights
@@ -64,7 +86,7 @@ The model provisioner requires Python 3.8+; `hf` is only needed when downloading
 # Opt into copying when source and project are on different filesystems
 "$PACKAGE/scripts/memory-models" embed --from /mnt/models/qmd --copy
 # Offline lookup in the configured/default shared cache
-PI_MEMORY_MODEL_DIR=/data/models/qmd "$PACKAGE/scripts/memory-models" embed --offline
+PROJECT_MEMORY_MODEL_DIR=/data/models/qmd "$PACKAGE/scripts/memory-models" embed --offline
 ```
 
 Candidates are checked in the project first, then the selected source/cache, using manifest filenames and resolver aliases. All existing selected candidates must validate before publication; a corrupt/conflicting candidate fails rather than being overwritten or silently replaced online. Missing online models are downloaded at pinned revisions into a temporary cache directory, verified, then published without overwrite. Locks serialize cooperative online cache writes and project provisioning. Interrupted staging files are never used as valid weights; abrupt termination may leave hidden temporary directories for manual cleanup.
@@ -85,7 +107,7 @@ Persistence has two modes: `manual` (default, explicit user requests only) and e
 
 ### Operator controls and configuration
 
-These commands change **only the current session**, never project preferences. Only operator commands can change runtime permission; there is no mode-changing model tool:
+These commands change **only the current Pi session**, never project preferences. Only operator commands can change runtime permission; there is no mode-changing model tool:
 
 ```text
 /memory-mode manual
@@ -99,6 +121,8 @@ These commands change **only the current session**, never project preferences. O
 
 Read and write permissions are independent: disabling reads does not disable explicitly authorized writes, and disabling writes does not block retrieval. Off suppresses both, injection, diagnostics and maintenance. Returning from off restores underlying preferences and session access overrides; it does not silently enable flags previously disabled. `memory_status` reports effective mode/access and diagnostic/maintenance health without starting QMD or reading stored bodies. These controls do not infer permissions from task keywords or negation. Legacy persistence still requires explicit affirmative intent by policy; a tool argument cannot prove that intent or semantic verification of a source claim.
 
+For Codex MCP, pass `--mode`, `--read`, and `--write` startup arguments in its server configuration; these gate that server session. Persistent defaults for either host live in `.project-memory/config.json` and can be changed with `scripts/memory-config.mjs --root PROJECT ...`. Restart Codex's MCP process after changing startup gates or persistent config.
+
 For persistent project opt-in, run **from the consumer root**, explicitly:
 
 ```bash
@@ -109,7 +133,7 @@ node "$PACKAGE/scripts/memory-config.mjs" --diagnostics off --auto-index off --w
 node "$PACKAGE/scripts/memory-config.mjs" # show effective preferences
 ```
 
-Configuration is validated at extension load; reload to adopt CLI edits. Defaults: manual, read/write enabled, diagnostics enabled, after-write auto-index enabled, warmup disabled. The config module's `loadMemoryPreferences(root)` returns validated **ungated** preferences; `loadMemoryConfig(root)` and `resolveMemoryConfig(base, overrides)` return effective off-gated configuration. Session controls resolve against the retained underlying preferences, not a previously gated result. Unknown/invalid configuration fails closed.
+Configuration is validated when the Pi Extension or Codex MCP server starts; restart that host process to adopt CLI edits. Defaults: manual, read/write enabled, diagnostics enabled, after-write auto-index enabled, warmup disabled. The config module's `loadMemoryPreferences(root)` returns validated **ungated** preferences; `loadMemoryConfig(root)` and `resolveMemoryConfig(base, overrides)` return effective off-gated configuration. Session controls resolve against the retained underlying preferences, not a previously gated result. Unknown/invalid configuration fails closed.
 
 ### Retrieval and legacy compatibility
 
@@ -131,17 +155,17 @@ After successful mutations only, auto-index debounces and serializes QMD update/
 node "$PACKAGE/scripts/memory-report.mjs"
 ```
 
-Diagnostics are lazy private files in `.pi/memory-state/diagnostics` (default retention three files of 1 MiB each), not a memory source. Off/diagnostics-disabled never call disk-writing hash APIs. Events use project-salted HMAC identifiers and session/plugin/policy versions, never prompts, queries, source paths, bodies, transcripts or raw backend errors. Search telemetry distinguishes persistence `mode`, `requestedMode` (keyword/semantic/deep), and actual `backend`; `retrieval.requestedModes` aggregates requests including failures. Only explicitly supplied, valid `memory_read.searchId` links a selected result to a search; timing is never used to infer relevance. Diagnostic failures are nonfatal and visible via `memory_status`; instance health counters reset when effective configuration changes.
+Diagnostics are lazy private files in `.project-memory/diagnostics` (default retention three files of 1 MiB each), not a memory source. Off/diagnostics-disabled never call disk-writing hash APIs. Events use project-salted HMAC identifiers and session/plugin/policy versions, never prompts, queries, source paths, bodies, transcripts or raw backend errors. Search telemetry distinguishes persistence `mode`, `requestedMode` (keyword/semantic/deep), and actual `backend`; `retrieval.requestedModes` aggregates requests including failures. Only explicitly supplied, valid `memory_read.searchId` links a selected result to a search; timing is never used to infer relevance. Diagnostic failures are nonfatal and visible via `memory_status`; instance health counters reset when effective configuration changes.
 
 Finalized host `turn_end` assistant usage uses message provider/model/counts/cost, deduplicated by session and message entry ID. Missing counts remain unknown. Error/aborted messages with all-zero counters and no provider response ID are conservatively classified `measurement:"unknown-zero-error"`, with null counters/cost, rather than assumed measured zero. Other supplied usage is `host-reported`; absent usage is `unavailable`. `actualUsage.byMeasurement` distinguishes these from older `unspecified` events, which are not retrospectively rewritten. These are **full session assistant usage totals in retained events**, not causal memory savings. Character/4 estimates are approximate, separate from provider usage and cost. Hit rate/follow-up rate are not recall; recall requires separately labeled relevant IDs. No diagnostic feedback tool or model evaluation is enabled.
 
 ### Context and runtime boundaries
 
-The plugin uses a bounded topic index instead of injecting long-term bodies, TODO contents, and today's/yesterday's logs. Detailed topic bodies are loaded on demand. Upstream pi-memory's automatic snapshots, startup catch-up, exit summarization, and log-copying compaction handoffs are not registered. There is no background LLM transcript summarizer. Startup model warmup is off by default; QMD remains an optional on-demand retrieval/indexing backend.
+Both hosts use a bounded topic index instead of injecting long-term bodies, TODO contents, and today's/yesterday's logs. Detailed topic bodies are loaded on demand. Automatic snapshots, startup catch-up, exit summarization, and transcript-copying handoffs are not registered. There is no background LLM transcript summarizer. Startup model warmup is off by default; QMD remains an optional on-demand retrieval/indexing backend.
 
 Runtime mode/access controls gate the plugin's tools, injection, and maintenance, including direct SDK execution. They do not sandbox generic file/shell tools or retroactively remove context already seen by the model. Natural-language opt-outs remain instructions to the model, not a claim of perfect automated intent detection. Use runtime controls **before** starting a clean session for strict isolation. Tool calls cannot authorize their own mode change.
 
-Plain `pi` uses the registered package after project trust. `scripts/pi-memory` remains the stricter GPU launcher requiring trusted config and cached embeddings; use plain `pi` for model-free Markdown/lexical operation.
+Pi uses the registered package after project trust. Codex uses `scripts/memory-mcp.mjs` over stdio and does not load Pi SDK modules. Both hosts can use model-free Markdown and lexical retrieval; semantic/deep QMD retrieval additionally needs explicit QMD trust and cached models.
 
 ```bash
 "$PACKAGE/scripts/qmd-memory" service status
@@ -162,15 +186,15 @@ node "$PACKAGE/scripts/memory-cuda.mjs"
 "$PACKAGE/scripts/qmd-memory" service start --warm
 ```
 
-The helper only creates package-local symlinks to existing public runtime libraries; it never downloads models, grants trust, or overwrites conflicting entries. `PI_MEMORY_CUDA_LIB_DIR` is an alternative to `--lib-dir`. The shim is machine-local: recreate it after moving the package or changing toolkits. A successful GPU warmup requires `device.gpu: "cuda"` and `gpuLayers.embed > 0`; a running CPU service is not reported as GPU success. Server failures are logged in the consumer's `.pi/qmd-state/service.log`, and the client/notification now show the actual error before any stack excerpt.
+The helper only creates package-local symlinks to existing public runtime libraries; it never downloads models, grants trust, or overwrites conflicting entries. `PI_MEMORY_CUDA_LIB_DIR` is an alternative to `--lib-dir`. The shim is machine-local: recreate it after moving the package or changing toolkits. A successful GPU warmup requires `device.gpu: "cuda"` and `gpuLayers.embed > 0`; a running CPU service is not reported as GPU success. Server failures are logged in `.project-memory/qmd-state/service.log`.
 
 The default service lifetime is **30 minutes after last use**, configurable to 1–1440 minutes. Status polls do not extend it. Shutdown of a Pi Session does not stop the project service; explicit stop or idle expiry closes the store and releases models. Authenticated Unix-socket requests queue GPU jobs serially. This pinned adapter uses QMD's internal retention field because its public SDK does not expose retention options.
 
 ## Scope and security
 
-Code, scripts, and dependencies resolve from the package. Markdown, recovery records, diagnostics/handoffs in `.pi/memory-state`, SQLite, QMD trust records, model cache, locks, socket, service metadata, and logs resolve only from the consumer root. No global Pi settings/auth files are edited. Do not share state directories via symlinks. Service metadata includes a local bearer token: never commit it. Setup's local ignore rules exclude `.pi/memory`, `.pi/memory-state`, `.pi/cache`, `.pi/qmd-state` (including bearer metadata, logs, and sockets), and `.qmd/index.sqlite*` (including WAL/SHM) from ordinary Git staging. The package also ignores these runtime paths locally. Ignore rules do not remove already tracked files or prevent forced staging; review `git ls-files` and staged changes before publishing.
+Code, scripts, and dependencies resolve from the package. Markdown, recovery records, diagnostics, handoffs, SQLite, QMD trust records, model cache, locks, socket, service metadata, and logs all resolve under the consumer's `.project-memory/`. No global Pi settings/auth files are edited. Do not share state directories via symlinks. Service metadata includes a local bearer token: never commit it. Setup's `.project-memory/.gitignore` protects local runtime data. The package also ignores its own local `.project-memory/`. Ignore rules do not remove already tracked files or prevent forced staging; review `git ls-files` and staged changes before publishing.
 
-The upstream library has module-global paths; use **one project per Pi process**. SDK callers must set `PI_MEMORY_PROJECT_ROOT` before loading the extension when `cwd` differs from `process.cwd()`. All registered tool/event/command callbacks reject a different session `cwd`; upstream lifecycle callbacks are suppressed rather than overridden. Scope checks reject symlinks but are not a sandbox against concurrent hostile filesystem changes or another process running as the same user. Never store secrets or complete transcripts.
+Each Pi or Codex MCP process binds to one project root. Set `PROJECT_MEMORY_PROJECT_ROOT` (or compatibility `PI_MEMORY_PROJECT_ROOT`) before loading the Pi extension if its session `cwd` differs from the process `cwd`; Codex's MCP command uses `--root`. Tool and event callbacks reject a different Pi session `cwd`. Scope checks reject symlinks but are not a sandbox against concurrent hostile filesystem changes or another process running as the same user. Never store secrets or complete transcripts.
 
 ## Validation
 

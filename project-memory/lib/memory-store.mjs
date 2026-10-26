@@ -7,10 +7,10 @@ const HEADER_MAX = 32768;
 const FILE_MAX = 140000;
 const RECOVERY_MAX = 200000;
 const HANDOFF_MAX = 12000;
-const TOPICS = '.pi/memory/topics';
-const RECOVERY = '.pi/memory/recovery';
-const HANDOFF = '.pi/memory-state/handoffs/current.json';
-const LOCK = '.pi/memory-state/store.lock';
+const TOPICS = '.project-memory/topics';
+const RECOVERY = '.project-memory/recovery';
+const HANDOFF = '.project-memory/handoffs/current.json';
+const LOCK = '.project-memory/store.lock';
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const normalizedBody = value => value.replace(/\r\n?/g, '\n').replace(/[\t ]+$/gm, '').replace(/\n+$/, '');
 const fail = (code, message) => { throw Object.assign(new Error(message), { code }); };
@@ -39,7 +39,7 @@ function sourcePath(value) {
   if (path.isAbsolute(value) || /^[A-Za-z]:/.test(value) || value.includes('\\') || value.split('/').some(part => !part || part === '.' || part === '..')) {
     fail('UNSAFE_PATH', 'Anchor paths must be canonical project-relative paths');
   }
-  if (value === '.pi/memory' || value.startsWith('.pi/memory/') || value === '.pi/memory-state' || value.startsWith('.pi/memory-state/')) {
+  if (value === '.project-memory' || value.startsWith('.project-memory/')) {
     fail('UNSAFE_PATH', 'Memory state cannot be a source anchor');
   }
   return value;
@@ -186,7 +186,7 @@ export function createMemoryStore(root) {
     }
   }
   function locked(action) {
-    ensureDir('.pi/memory-state');
+    ensureDir('.project-memory');
     const deadline = Date.now() + 100;
     let fd;
     while (fd === undefined) {
@@ -468,7 +468,7 @@ export function createMemoryStore(root) {
       maxChars = integer(maxChars, 1800, 12000, 'maxChars', 64);
       limit = integer(limit, 30, 100, 'limit');
       const all = allMetadata();
-      const legacy = ['.pi/memory/MEMORY.md', '.pi/memory/SCRATCHPAD.md', '.pi/memory/daily', '.pi/memory/logs', '.pi/memory/long-term.md', '.pi/memory/scratchpad.md'].some(relative => checked(relative));
+      const legacy = ['.project-memory/MEMORY.md', '.project-memory/SCRATCHPAD.md', '.project-memory/daily', '.project-memory/logs', '.project-memory/long-term.md', '.project-memory/scratchpad.md'].some(relative => checked(relative));
       const lines = [];
       const render = () => `Topics: ${all.length}; omitted: ${all.length - lines.length}${legacy ? '; legacy available' : ''}\n${lines.join('\n')}`;
       for (const meta of all.slice(0, limit)) {

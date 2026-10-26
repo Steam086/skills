@@ -3,7 +3,7 @@ import path from 'node:path';
 import { createHmac, randomBytes } from 'node:crypto';
 import { DEFAULT_CONFIG, resolveMemoryConfig, _memoryStateIO as io } from './memory-config.mjs';
 
-const DIRECTORY = '.pi/memory-state/diagnostics';
+const DIRECTORY = '.project-memory/diagnostics';
 const SALT = `${DIRECTORY}/salt`;
 const LOCK = `${DIRECTORY}/.lock`;
 export const TELEMETRY_SCHEMA_VERSION = 1;

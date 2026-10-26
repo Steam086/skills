@@ -39,7 +39,7 @@ const invoke = async (name, params) => {
   return { success: !value.isError, ...JSON.parse(value.content[0].text) };
 };
 function snapshot() {
-  const root = path.join(cwd, '.pi/memory');
+  const root = path.join(cwd, '.project-memory');
   const entries = fs.existsSync(root) ? fs.readdirSync(root, { recursive: true }).filter(p => fs.lstatSync(path.join(root, p)).isFile()).sort() : [];
   return { hash: createHash('sha256').update(entries.map(p => p + '\0' + fs.readFileSync(path.join(root, p), 'utf8')).join('\0')).digest('hex'), ids: store.list({ limit: 100, maxChars: 24000 }).records.map(r => r.id) };
 }

@@ -1,7 +1,7 @@
 # Project-local index. Review before explicitly granting QMD trust.
 collections:
-  pi-memory:
-    path: ./.pi/memory
+  project-memory:
+    path: .
     pattern: "**/*.md"
     ignore:
       - "recovery/**"

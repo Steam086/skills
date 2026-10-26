@@ -3,7 +3,7 @@ set -euo pipefail
 PACKAGE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 environment_shell="$(node "$PACKAGE/memory-env.cjs" --shell)" || exit $?
 eval "$environment_shell"
-cd "$PI_MEMORY_PROJECT_ROOT"
+cd "$PI_MEMORY_DIR"
 for arg in "$@"; do
   case "$arg" in --index|--index=*|--config|--config=*) echo 'Index/config overrides are not allowed.' >&2; exit 2;; esac
 done

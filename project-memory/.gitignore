@@ -1,6 +1,7 @@
 # Dependencies and consumer runtime state must not be published.
 /node_modules/
 /runtime/
+/.project-memory/
 /.pi/memory/
 /.pi/memory-state/
 /.pi/cache/

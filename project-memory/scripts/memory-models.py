@@ -146,13 +146,13 @@ def main():
     parser.add_argument('--offline', action='store_true', help='Never invoke hf or download')
     parser.add_argument('--copy', action='store_true', help='Allow cross-filesystem copies (never overwrite)')
     args = parser.parse_args()
-    root = os.environ.get('PI_MEMORY_PROJECT_ROOT')
+    root = os.environ.get('PROJECT_MEMORY_PROJECT_ROOT') or os.environ.get('PI_MEMORY_PROJECT_ROOT')
     if not root:
         parser.error('Use scripts/memory-models from a consumer project')
     package = Path(__file__).resolve().parent.parent
     with (package / 'model-sources.json').open() as stream:
         manifest = json.load(stream)
-    provision(manifest, Path(root) / '.pi/cache/qmd/models',
+    provision(manifest, Path(root) / '.project-memory/cache/qmd/models',
               args.source or args.model_dir or args.default_model_dir,
               args.selection, args.offline or bool(args.source), args.copy)
 

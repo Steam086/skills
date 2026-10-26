@@ -91,8 +91,8 @@ export function createLegacyMemory(root, helpers) {
     } finally { if (fs.existsSync(path.join(root, temporary))) fs.unlinkSync(path.join(root, temporary)); }
   }
   function mutate(fn) {
-    mkdir('.pi/memory-state');
-    const lock = '.pi/memory-state/legacy.lock';
+    mkdir('.project-memory');
+    const lock = '.project-memory/legacy.lock';
     inspect(lock);
     let fd;
     try { fd = fs.openSync(path.join(root, lock), 'wx', 0o600); }
@@ -100,16 +100,16 @@ export function createLegacyMemory(root, helpers) {
     try { return fn(); } finally { fs.closeSync(fd); fs.unlinkSync(path.join(root, lock)); }
   }
   function target(params) {
-    if (params.target === 'long_term' || params.target === undefined) return '.pi/memory/MEMORY.md';
-    if (params.target === 'scratchpad') return '.pi/memory/SCRATCHPAD.md';
+    if (params.target === 'long_term' || params.target === undefined) return '.project-memory/MEMORY.md';
+    if (params.target === 'scratchpad') return '.project-memory/SCRATCHPAD.md';
     if (params.target !== 'daily') fail('INVALID_INPUT');
     const date = params.date ?? helpers.todayStr();
     if (typeof date !== 'string' || !helpers.isValidDailyDate(date)) fail('INVALID_INPUT');
-    return `.pi/memory/daily/${date}.md`;
+    return `.project-memory/daily/${date}.md`;
   }
   function readTarget(params, budget) {
     if (params.target === 'list') {
-      const relative = '.pi/memory/daily';
+      const relative = '.project-memory/daily';
       const files = inspect(relative, true) ? fs.readdirSync(path.join(root, relative)).filter(f => /^\d{4}-\d{2}-\d{2}\.md$/.test(f)).sort().reverse() : [];
       for (const file of files) inspect(`${relative}/${file}`);
       const offset = integer(params.offset, 0, 0, 10000000), limit = integer(params.limit, 20, 1, 24000);
@@ -153,13 +153,13 @@ export function createLegacyMemory(root, helpers) {
         const recoveryId = randomUUID();
         const record = { version: 1, id: recoveryId, createdAt: new Date().toISOString(), target: params.target ?? 'long_term',
           ...(params.target === 'daily' ? { date: params.date ?? helpers.todayStr() } : {}), removedContent: result.removed };
-        write(`.pi/memory/recovery/${recoveryId}.json`, JSON.stringify(record));
+        write(`.project-memory/recovery/${recoveryId}.json`, JSON.stringify(record));
         try { write(relative, result.content); } catch { const e = new Error(`Project memory: write failed; recoveryId=${recoveryId}`); e.code = 'IO'; e.recoveryId = recoveryId; throw e; }
         return { status: 'deleted', removed: result.removed.length, recoveryId };
       }
       const id = params.recoveryId;
       if (typeof id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) fail('INVALID_INPUT');
-      const relative = `.pi/memory/recovery/${id}.json`;
+      const relative = `.project-memory/recovery/${id}.json`;
       let record;
       try { record = JSON.parse(read(relative)); } catch { fail('INVALID_RECORD'); }
       if (record.version !== 1 || record.id !== id || !['long_term', 'daily'].includes(record.target)
@@ -175,9 +175,9 @@ export function createLegacyMemory(root, helpers) {
   }
   function availableTargets() {
     const targets = [];
-    if (inspect('.pi/memory/MEMORY.md')) targets.push('long_term');
-    if (inspect('.pi/memory/SCRATCHPAD.md')) targets.push('scratchpad');
-    const relative = '.pi/memory/daily';
+    if (inspect('.project-memory/MEMORY.md')) targets.push('long_term');
+    if (inspect('.project-memory/SCRATCHPAD.md')) targets.push('scratchpad');
+    const relative = '.project-memory/daily';
     if (inspect(relative, true)) {
       const directory = fs.opendirSync(path.join(root, relative));
       try {
@@ -208,7 +208,7 @@ export function createQmdRuntime(environment, config, { delay = 750 } = {}) {
   }
   function available() {
     environment.validateState();
-    return ['.qmd/index.yml', '.qmd/index.sqlite'].every(relative => {
+    return ['.project-memory/.qmd/index.yml', '.project-memory/.qmd/index.sqlite'].every(relative => {
       const file = path.join(environment.root, relative);
       return fs.existsSync(file) && fs.lstatSync(file).isFile() && fs.lstatSync(file).nlink === 1;
     });
@@ -232,7 +232,7 @@ export function createQmdRuntime(environment, config, { delay = 750 } = {}) {
     else {
       await run(process.execPath, [helper, 'check'], signal, 15000);
       signal?.throwIfAborted();
-      output = await run(path.join(environment.packageRoot, 'bin/qmd'), [command, query, '--existing-service-only', '--json', '-c', 'pi-memory', '-n', String(limit)], signal);
+      output = await run(path.join(environment.packageRoot, 'bin/qmd'), [command, query, '--existing-service-only', '--json', '-c', 'project-memory', '-n', String(limit)], signal);
     }
     signal?.throwIfAborted();
     if (/need embeddings|missing.*embedding/i.test(output.stderr)) fail('UNAVAILABLE');
