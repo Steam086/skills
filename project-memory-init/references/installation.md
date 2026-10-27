@@ -1,58 +1,58 @@
-# 安装流程与授权边界
+# Installation workflow and authorization boundaries
 
-## 1. 范围和前置检查
+## 1. Scope and preflight
 
-以下命令是 Bash 模板，不是一键无条件执行脚本。`PACKAGE`、`TARGET`、`MODEL_SOURCE` 必须来自已审查且明确的路径，始终引用变量。运行每一步前检查退出码；失败立即停止后续步骤。
+The commands below are Bash templates, not an unconditional installer. `PACKAGE`, `TARGET`, and `MODEL_SOURCE` must be reviewed, explicit paths; always quote them. Check each exit status and stop subsequent steps on failure.
 
-- 记录目标逻辑路径与 `realpath`；Git 项目用 `git -C "$TARGET" rev-parse --show-toplevel` 核对根目录，非 Git 目录由用户明确指定。
-- 检查 `PI_MEMORY_PROJECT_ROOT` 是否遗留其他目标；仅在本次子 shell 中设成目标真实路径，不能污染其他会话。
-- 检查目标 `.pi/settings.json`、`.pi/extensions`、`.pi/skills`、`.agents/skills`、`.qmd/index.yml` / `index.yaml` 及适用的全局资源声明，识别重复 runtime、旧 `repo-memory`、`.repo-memory` 或自定义 bootstrap。不要输出全局 auth 文件或其他凭据。发现活跃冲突停止并请求人工迁移。
-- 检查包 manifest 是否同时声明 `SKILL.md` 与 `extensions/project-memory.ts`，以及所需脚本、lockfile 和 `model-sources.json` 是否存在。完整阅读包 README；版本不兼容时停止，不套用旧命令。
-- 检查 Node.js >=22.19、npm、Bash、flock 和可用 Pi。模型准备需要 Python 3.8+，只有在线模型下载需要 hf；只有 GPU 验证需要兼容驱动/CUDA。
-- 现有项目状态不能通过软链接共享；包的 setup 还会执行安全预检。不要复制别的项目 `.pi`、QMD 信任记录或服务元数据。
+- Record the logical target path and `realpath`. For Git projects, check the root with `git -C "$TARGET" rev-parse --show-toplevel`; for non-Git directories, require an explicit target.
+- Check whether `PI_MEMORY_PROJECT_ROOT` points to another project. Set it to the target real path only in the installation subshell, without affecting other sessions.
+- Inspect target `.pi/settings.json`, `.pi/extensions`, `.pi/skills`, `.agents/skills`, `.qmd/index.yml` / `index.yaml`, and applicable global resource declarations. Identify duplicate runtimes, legacy `repo-memory`, `.repo-memory`, and custom bootstraps. Never print global auth files or credentials. Stop on active conflicts and request manual migration, except for the specific duplicate-skill normalization in section 4.
+- Verify that the package manifest declares both `SKILL.md` and `extensions/project-memory.ts`, and that required scripts, lockfile, and `model-sources.json` exist. Read the package README completely. Stop on incompatible versions instead of applying outdated commands.
+- Check Node.js >=22.19, npm, Bash, flock, and Pi availability. Model provisioning requires Python 3.8+; only online downloads require hf. GPU validation requires compatible NVIDIA/CUDA.
+- Never share project state through symlinks. Package setup also performs safety checks. Do not copy another project's `.pi`, QMD trust records, or service metadata.
 
-## 2. 来源与更新
+## 2. Package source and updates
 
-解析顺序：用户明确的包路径 → 本 skill 真实目录同级 `../project-memory` → 询问来源。
+Resolve in order: an explicit user-specified package path, the sibling `../project-memory` of this skill's real directory, then ask for a source.
 
-本项目的集合仓库为 `https://github.com/Steam086/skills.git`；它不是根级 Pi package。首次获取必须得到联网和目标路径授权，例如：
+The collection repository is `https://github.com/Steam086/skills.git`; its root is not a Pi package. Initial acquisition requires network and destination approval, for example:
 
 ```bash
 git clone https://github.com/Steam086/skills.git "$CHECKOUT"
-# 如用户指定版本，在 checkout 中选择已审查的 commit/tag。
+# If a version was requested, select the reviewed commit/tag in the checkout.
 PACKAGE="$CHECKOUT/project-memory"
 ```
 
-不要使用 `pi install git:github.com/Steam086/skills` 假装选择子目录。不要在初始化时自动 `git pull`、切换已有 checkout 的版本或运行更新脚本。共享路径的代码和依赖变化会影响所有消费项目；更新须另行授权并审查差异。也不要在初始化过程中安装、卸载或替换全局旧入口。
+Do not use `pi install git:github.com/Steam086/skills` as though it selected a subdirectory. Never automatically run `git pull`, change an existing checkout's version, or run update scripts during initialization. Shared code and dependency changes affect all consumer projects; updates require separate authorization and diff inspection. Do not install, remove, or replace legacy global entry points during initialization.
 
-## 3. 授权清单
+## 3. Authorization checklist
 
-| 操作 | 条件 |
+| Operation | Requirement |
 | --- | --- |
-| 只读预检 | 当前安装请求范围内 |
-| 创建本项目状态、注册本地包 | 明确安装请求；先说明路径 |
-| 缺失依赖安装 | 说明网络访问及共享 node_modules 影响；授权后执行 |
-| `pi install --local --approve` | 明确说明并获准本次命令批准；不保存永久 trust |
-| QMD trust | 审查生成配置并明确获准信任 |
-| 从已指定目录复用模型 | 明确复用请求；校验通过；不覆盖 |
-| 跨文件系统复制、在线模型下载 | 说明磁盘/网络开销并获准 |
-| 索引、GPU 预热 | 明确验收授权；说明服务使用显存，默认空闲 30 分钟退出 |
-| 更新共享包、修改全局设置 | 不属于默认安装范围，另行授权 |
-| 永久 Pi trust | 用户在 Pi 交互界面自行确认 |
+| Read-only preflight | Within the current installation request |
+| Create project state and register the local package, including section 4 normalization | Explicit installation request; explain affected paths first |
+| Install missing dependencies | Explain network access and shared node_modules changes; obtain approval |
+| `pi install --local --approve` | Explain and obtain approval for this command only; no permanent trust |
+| QMD trust | Review generated configuration and obtain explicit trust approval |
+| Reuse models from a specified directory | Explicit reuse request; verify before publishing; never overwrite |
+| Cross-filesystem copies or online model downloads | Explain disk/network costs and obtain approval |
+| Indexing and GPU warmup | Explicit validation approval; explain GPU memory use and the default 30-minute idle shutdown |
+| Update shared package or global settings | Outside default installation scope; separate authorization |
+| Permanent Pi trust | User confirmation in Pi's interactive interface |
 
-可一次确认：“为 TARGET 安装，允许单次 Pi 安装批准、信任生成的 QMD 配置、复用 MODEL_SOURCE 的 embedding 并验证 GPU；不下载、不更新共享包。” 未包含的权限保持未授权。
+Approval can be grouped: “Install into TARGET; allow one-command Pi installation approval, trust the generated QMD configuration, reuse embedding from MODEL_SOURCE, and validate GPU; no downloads or shared-package updates.” Unmentioned permissions remain ungranted.
 
-## 4. 依赖、初始化与注册
+## 4. Dependencies, initialization, and registration
 
-先在包目录检查 `npm ls --omit=peer` 并核对 lockfile；依赖已满足时跳过重装。缺失或不匹配时，获准后执行：
+Check `npm ls --omit=peer` in the package directory and verify the lockfile. Skip reinstalling satisfied dependencies. For missing or mismatched dependencies, obtain approval before running:
 
 ```bash
 "$PACKAGE/scripts/memory-install"
 ```
 
-安装器使用 lockfile，跳过生命周期脚本和自动 peer 安装，并设置包本地 CUDA loader。不安装 CUDA/驱动，不改全局 loader。若依赖已齐全但需要配置已有 CUDA，经说明执行 `node "$PACKAGE/scripts/memory-cuda.mjs"`；自定义路径用其 `--lib-dir` 选项。
+The installer uses the lockfile, skips lifecycle scripts and automatic peer installation, and configures the package-local CUDA loader. It does not install CUDA/drivers or change the global loader. If dependencies are already satisfied but existing CUDA needs configuration, explain before running `node "$PACKAGE/scripts/memory-cuda.mjs"`; use `--lib-dir` for a custom path.
 
-在目标根目录的子 shell 中执行后续命令：
+Run subsequent commands in a subshell rooted at the target:
 
 ```bash
 cd "$TARGET"
@@ -61,55 +61,82 @@ node "$PACKAGE/scripts/memory-setup.mjs"
 pi install --local "$PACKAGE"
 ```
 
-若项目不受信任导致注册拒绝，停止审查项目资源；只有明确获准后才用 `pi install --local --approve "$PACKAGE"` 重试。不要自动加 approve。已经正确注册时跳过注册，不覆盖 settings。
+If registration is rejected because the project is untrusted, stop and review its resources. Retry with `pi install --local --approve "$PACKAGE"` only after explicit approval; never add approve automatically. Skip registration when already registered, but still perform the skill-source check below. Preserve existing settings.
 
-setup 创建 `.pi/memory/`、`.pi/cache/qmd/models/`、`.pi/qmd-state/`、`.qmd/index.yml` 及局部 ignore 文件；不编辑根 `.gitignore`、AGENTS.md 或 Pi 设置，不授 trust、不启动服务。
+Setup creates `.pi/memory/`, `.pi/cache/qmd/models/`, `.pi/qmd-state/`, `.qmd/index.yml`, and local ignore files. It does not edit the root `.gitignore`, AGENTS.md, or Pi settings, grant trust, or start services.
 
-## 5. 本地模型复用
+### Select exactly one skill source
 
-默认选择 `model-sources.json` 的 `embed`；用户要求 Deep 时再选择 `rerank` 和 `generate`。先检查目标缓存，再检查明确给定的源目录，不遍历用户整个 home、其他项目或整块磁盘。`/data/models/qmd` 只是一个可由用户指定的本机示例，不是硬编码前提。
+Perform this check after registration and on repeated installations, even when the package is already registered. A plain package string loads its declared skill as well as its extension; an automatically discovered project skill with the same name causes a collision.
 
-优先使用配套包的实际 provisioner，不临时编写复制逻辑。需要 Python 3.8+，仅在线下载需要 hf：
+1. Inspect `.agents/skills/project-memory/SKILL.md` and `.pi/skills/project-memory/SKILL.md`, as well as any other discovered or explicitly configured skills named `project-memory`. A valid project-local skill must have valid frontmatter, `name: project-memory`, a nonempty description, and instructions reviewed for compatibility with the selected runtime. Do not infer validity from file existence alone.
+2. If exactly one valid project-local skill is available, retain it and disable only the package's skill resources. In the target `.pi/settings.json`, convert the matching package string to an object with the same `source` and `"skills": []`. For an existing object, change only its `skills` field; preserve the source, extension filters, and all other properties. Match local package identity by resolved path, not just the source's spelling. Relative sources resolve from the containing settings directory.
+3. If no project-local skill exists, keep the package skill enabled. For a fresh installation, leave the package string or omit the object's `skills` field. If an existing filter disables the package skill and no alternative exists, explain the missing-skill state and obtain approval before changing an intentional filter. Do not blindly add `"skills": []` to every installation.
+4. Malformed or incompatible local skills, multiple local/global skill sources, duplicate runtimes, and ambiguous registrations require clarification. Do not delete, rename, overwrite, or migrate skills to silence warnings. This exception permits only normalization of the known package-skill/project-skill collision, not arbitrary conflict repair.
+
+Example when a valid project-local skill exists (retain the actual existing source rather than copying this placeholder):
+
+```json
+{
+  "packages": [
+    {
+      "source": "/absolute/path/to/project-memory",
+      "skills": []
+    }
+  ]
+}
+```
+
+Merge this change into existing settings; never replace unrelated package entries or configuration. Do not remove the runtime package, add `"extensions": []`, or modify the shared package's `pi.skills` manifest. Disabling package skills must not disable memory tools. If existing extension filters already exclude the runtime, report it instead of claiming successful installation.
+
+Validate JSON, package identity, runtime-extension selection, and exactly one selected skill source. After `/reload` or restarting Pi, check that `project-memory` has no collision diagnostic and that the expected memory tools remain available. If interactive loading was not checked, report only static validation, not confirmed session activation.
+
+## 5. Reuse local models
+
+Select `embed` from `model-sources.json` by default; select `rerank` and `generate` only when Deep is requested. Check the target cache first, then explicitly supplied source directories. Never scan the whole filesystem, the user's home, or other projects. `/data/models/qmd` is only an example user-selected directory, not a prerequisite.
+
+Use the package provisioner rather than writing ad hoc copying logic. Python 3.8+ is required; hf is needed only for online downloads:
 
 ```bash
-# --from 隐含离线，不修改源目录、不下载；MODEL_SOURCE 必须是已确认的真实路径
+# --from implies offline: no source modification or download.
+# MODEL_SOURCE must be an explicitly confirmed real path.
 "$PACKAGE/scripts/memory-models" embed --from "$MODEL_SOURCE" --offline
-# 跨盘且已明确批准复制时，加 --copy
+# Add --copy only for an approved cross-filesystem copy.
 # "$PACKAGE/scripts/memory-models" embed --from "$MODEL_SOURCE" --offline --copy
-# 未给源目录时，只查项目与默认/配置的共享缓存，不联网
+# Without a source, check only project and default/configured shared caches, offline.
 "$PACKAGE/scripts/memory-models" embed --offline
 ```
 
-在线共享目录优先级为 `--model-dir` > `PI_MEMORY_MODEL_DIR` > `${XDG_CACHE_HOME:-$HOME/.cache}/project-memory/models`。脚本在修改项目环境前解析默认目录。初始化代理如果已在父 shell 中把 XDG_CACHE_HOME 设成项目缓存，应显式传入已确认的共享目录，避免继承错误默认值。`--from` 与 `--model-dir` 互斥；前者为只读离线导入，后者允许显式下载到共享缓存。不要自动回退到联网。Deep 将 `embed` 替换为 `all`。
+Online shared-directory precedence is `--model-dir` > `PI_MEMORY_MODEL_DIR` > `${XDG_CACHE_HOME:-$HOME/.cache}/project-memory/models`. The script resolves defaults before changing the project environment. If the parent shell already sets XDG_CACHE_HOME to the project cache, explicitly supply the confirmed shared directory to avoid inheriting that default. `--from` and `--model-dir` are mutually exclusive: the former is read-only offline import; the latter permits explicitly authorized downloads to the shared cache. Never silently fall back to network access. For Deep, replace `embed` with `all`.
 
-脚本负责以下校验和发布原则；失败时报告原因，不用临时脚本绕过：
+The provisioner enforces these rules. On failure, report the cause instead of bypassing checks with temporary scripts:
 
-1. 从已审查 manifest 取 `file`、`cacheName`、`sha256`。只允许普通 basename，拒绝路径分隔符、绝对路径、`.`、`..`。
-2. 候选为目标或源目录下的 `file` / `cacheName`。验证是普通文件，不跟随项目状态软链接；检查头四字节为 `GGUF`，流式计算完整 SHA256，必须与 manifest 一致。
-3. **先验证所有已存在的选中候选文件及已有目标，再发布权重。** 已有目标内容不符、别名不符或软链接时停止，保留现场，不删除；缺失的在线模型在授权下载后逐个校验再发布。
-4. 已有目标与 alias 校验正确则复用。缺失目标用独占创建的硬链接，不覆盖；遇到 EXDEV 时停止，取得复制授权后独占复制并重新校验。其他错误不擅自退化为复制。新建 alias 指向目标权重的硬链接，目标两个名字不重复占用存储。
-5. 不 chmod、不改写硬链接模型；它们与源共享 inode，任何原地修改会影响其他消费者。需要独立可变文件时选择复制。记录源、目标、校验结果和复用方式。
+1. Read `file`, `cacheName`, and `sha256` from the reviewed manifest. Accept ordinary basenames only; reject separators, absolute paths, `.`, and `..`.
+2. Candidates use `file` or `cacheName` in the target/source directory. Require regular files without following project-state symlinks, check the first four bytes for `GGUF`, and stream the full SHA256 calculation against the manifest.
+3. Verify all existing selected candidates and targets before publishing weights. Stop on mismatched content, aliases, or symlinks; preserve evidence without deleting files. After explicit download approval, verify each newly downloaded model before publishing it.
+4. Reuse valid targets and aliases. Publish missing targets through exclusive hard-link creation, never overwrite. On EXDEV, stop, obtain copy approval, then exclusively create and reverify a copy. Do not silently fall back to copying on other errors. New aliases are hard links to target weights, so the two names do not duplicate storage.
+5. Do not chmod or rewrite hard-linked models: they share an inode with their source, so in-place changes affect other consumers. Choose copying for independently mutable files. Record source, target, verification result, and reuse method.
 
-源文件不匹配时不要自动联网替换。只有明确下载授权后才运行包的：
+Do not automatically replace mismatched source files through network downloads. Only after explicit download approval run:
 
 ```bash
 "$PACKAGE/scripts/memory-models" embed
-# Deep 全量下载（仅明确要求时）：
+# Full Deep models, only when explicitly requested:
 # "$PACKAGE/scripts/memory-models" all
 ```
 
-下载脚本依赖 hf 和 Python 3，固定 revision 并校验 SHA256。不要索要访问令牌；需要认证时让用户自行通过 hf 的正常认证流程处理。
+The download script uses hf and Python 3, pins revisions, and verifies SHA256. Never request access tokens in chat; direct users to hf's normal authentication workflow when needed.
 
-## 6. Trust 与验收
+## 6. Trust and validation
 
-展示 `.qmd/index.yml` 配置摘要：只索引项目 `.pi/memory/**/*.md`，排除 recovery，及 embed/generate/rerank 模型标识。确认无意外 hook、项目外路径或自定义模型。明确获准后：
+Summarize `.qmd/index.yml`: only project `.pi/memory/**/*.md` is indexed, recovery is excluded, and embed/generate/rerank model identifiers are expected. Check for unexpected hooks, external paths, or custom models. After explicit authorization:
 
 ```bash
 "$PACKAGE/scripts/qmd-memory" trust
 node "$PACKAGE/check-memory-config.mjs" --require-trust --models=embed
 ```
 
-只有获准进行运行验收时执行：
+Only with runtime-validation approval:
 
 ```bash
 "$PACKAGE/scripts/memory-index"
@@ -117,8 +144,8 @@ node "$PACKAGE/check-memory-config.mjs" --require-trust --models=embed
 "$PACKAGE/scripts/qmd-memory" service status
 ```
 
-GPU 成功必须同时满足 `device.gpu == "cuda"` 且 `gpuLayers.embed > 0`；服务 running 或 CPU fallback 不算 GPU 成功。不要为了验收加载额外 Deep 模型、创建假记忆或修改源码。全新记忆为空时索引 0 条、无 vector index 是正常状态，不能据此宣称完成了带文档的检索验证。
+GPU success requires both `device.gpu == "cuda"` and `gpuLayers.embed > 0`. A running service or CPU fallback does not establish GPU success. Do not load extra Deep models, create fake memories, or modify source code for validation. A fresh empty memory store normally indexes zero documents and may have no vector index; this does not establish successful retrieval over documents.
 
-CUDA 失败时检查本项目 `.pi/qmd-state/service.log`，仅报告必要的错误摘要，不暴露服务令牌。修改已有 CUDA loader 后要重启该项目服务，先说明可能影响当前会话。无 GPU 或缺少模型时如实报告“注册完成、语义/GPU 未验证”；不要绕过 trust 或伪装成功。关键词检索不需要模型权重。
+On CUDA failure, inspect this project's `.pi/qmd-state/service.log` and report only necessary error summaries, never service tokens. Restarting a project service after modifying an existing CUDA loader can affect active sessions; explain before doing so. Without GPU or models, report “registered; semantic/GPU behavior unverified.” Do not bypass trust or pretend success. Keyword retrieval needs no model weights.
 
-最后检查消费项目 `git status --short`、`git check-ignore` 和已跟踪文件：ignore 不会保护已经跟踪的敏感文件。不要读取/打印 bearer metadata，不自动提交消费项目状态。报告包路径、目标真实路径、配置注册状态、模型原始和缓存位置、QMD trust、GPU 验证、剩余步骤。提示用户从目标根目录启动 `pi` 并亲自确认项目 trust；一进程只用一个项目。未在交互 Pi 中验证时，不声称项目资源已经在用户会话生效。
+Finally inspect consumer-project `git status --short`, `git check-ignore`, and tracked files: ignore rules do not protect already tracked sensitive files. Never read/print bearer metadata. Never commit memory, models, service tokens, logs, or trust records, and do not automatically commit consumer configuration. Report package path, target real path, registration and selected skill source, model source/cache paths, QMD trust, GPU validation, and remaining steps. Ask the user to start Pi from the target root and personally confirm project trust; one process uses one project. If not checked in interactive Pi, do not claim resources are active in the user's session.

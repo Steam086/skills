@@ -28,8 +28,31 @@ test('local Markdown references resolve and instructions retain installation bou
     assert.doesNotMatch(text, /\/home\/jjr/);
   }
   const instructions = read('SKILL.md') + read('references/installation.md');
-  for (const contract of ['disable-model-invocation: true', 'SHA256', 'EXDEV', '不覆盖', '永久 Pi trust', '不全局安装运行时', '不全盘扫描', '不提交', 'service start --warm']) {
+  for (const contract of ['disable-model-invocation: true', 'SHA256', 'EXDEV', 'never overwrite', 'Permanent Pi trust', 'Never install the runtime globally', 'Never scan the whole filesystem', 'Never commit memory', 'service start --warm']) {
     assert.ok(instructions.includes(contract), contract);
+  }
+});
+
+test('registration instructions conditionally deduplicate skills and preserve the runtime', () => {
+  const instructions = read('references/installation.md');
+  for (const contract of [
+    'after registration and on repeated installations',
+    'exactly one valid project-local skill',
+    '"skills": []',
+    'If no project-local skill exists, keep the package skill enabled',
+    'change only its `skills` field',
+    'preserve the source, extension filters, and all other properties',
+    'resolved path',
+    'Do not infer validity from file existence alone',
+    'Malformed or incompatible local skills',
+    'Do not remove the runtime package',
+    'exactly one selected skill source',
+    'report only static validation',
+  ]) {
+    assert.ok(instructions.includes(contract), contract);
+  }
+  for (const file of ['SKILL.md', 'README.md', 'references/installation.md']) {
+    assert.doesNotMatch(read(file), /\p{Script=Han}/u, `${file} must use English prose`);
   }
 });
 
