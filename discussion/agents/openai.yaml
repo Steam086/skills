@@ -1,0 +1,6 @@
+interface:
+  display_name: "Discussion Mode"
+  short_description: "Manual, session-long discussion and research mode"
+  default_prompt: "Use $discussion to enter discussion mode for this session until I explicitly ask to exit."
+policy:
+  allow_implicit_invocation: false
