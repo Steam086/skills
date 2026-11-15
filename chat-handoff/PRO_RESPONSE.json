@@ -1,0 +1,105 @@
+{
+  "protocol_version": "pro-handoff/1.0",
+  "session_id": "8d7babd5929d498bb96af8f6b84868a4",
+  "based_on_export_id": "1f3c492a41454d1e951aab9eae0bb2f4",
+  "based_on_snapshot_id": "e0896b0379dc88e5bc6924072ddec1e206641fb8029689152c2e03fbf01f4ccc",
+  "response_id": "2358b4418abd4510819b4bc3995d2805",
+  "summary": "核对 ZIP 源码并本地执行 unittest：quote(\"unknown\") 返回 {\"carrier\":\"skylark-reserve-7\",\"currency\":\"USD\"}；已有唯一测试仅检查 local 的 carrier，不覆盖未知区回退。默认拒绝未知区将改变旧客户端可依赖的成功回退行为，建议先锁定回归测试，再确认契约与迁移策略。",
+  "facts": [
+    {
+      "claim": "src/zones.py::carrier 使用 CARRIERS.get(zone, \"skylark-reserve-7\")；映射仅包含 local→bike 与 intl→air，未知键 unknown 因此返回精确字符串 skylark-reserve-7。",
+      "evidence": [
+        {
+          "path": "src/zones.py",
+          "sha256": "d238a33ff432b712b4e2739c30b7e770dfa0d5346169b47fef063b7d07ac44a2",
+          "detail": "CARRIERS = {\"local\": \"bike\", \"intl\": \"air\"}；carrier(zone) 返回 CARRIERS.get(zone, \"skylark-reserve-7\")。"
+        }
+      ]
+    },
+    {
+      "claim": "src/quote.py::quote(\"unknown\") 的完整返回值是 {\"carrier\": \"skylark-reserve-7\", \"currency\": \"USD\"}；本地调用核实一致。",
+      "evidence": [
+        {
+          "path": "src/quote.py",
+          "sha256": "8a1d69da997546a44cc73a2580e9d76e5b75a7de1f91f9868f79ee47b25dac92",
+          "detail": "quote(zone) 返回 {\"carrier\": carrier(zone), \"currency\": \"USD\"}。"
+        },
+        {
+          "path": "src/zones.py",
+          "sha256": "d238a33ff432b712b4e2739c30b7e770dfa0d5346169b47fef063b7d07ac44a2",
+          "detail": "carrier(\"unknown\") 使用默认返回值 \"skylark-reserve-7\"。"
+        }
+      ]
+    },
+    {
+      "claim": "tests/test_quote.py::QuoteTest.test_local_zone 是现有唯一测试，仅断言 quote(\"local\")[\"carrier\"] == \"bike\"；未覆盖 unknown 回退、intl 或完整 currency 字段。",
+      "evidence": [
+        {
+          "path": "tests/test_quote.py",
+          "sha256": "4fb75c1be8603e9ce4a2b0033bd60da569d492fb36a81be8a4d67c354ffd3404",
+          "detail": "唯一 test_local_zone 断言 local 的 carrier 为 bike，无 unknown 相关测试。"
+        }
+      ]
+    },
+    {
+      "claim": "README.md 说明旧客户端提交自由格式的配送区，要求在改变未知区处理方式前分析兼容性。",
+      "evidence": [
+        {
+          "path": "README.md",
+          "sha256": "30c5fd2dcf4eaffc35db5f7554b73fb45a674eed67387454b7e7b46f41998f6a",
+          "detail": "Legacy clients submit free-form delivery zones. Analyze compatibility before changing how unknown zones are handled."
+        }
+      ]
+    }
+  ],
+  "proposals": [
+    {
+      "id": "regress_unknown_zone_fallback",
+      "recommendation": "优先在 tests/test_quote.py 新增 QuoteTest.test_unknown_zone_preserves_legacy_fallback，断言 quote(\"unknown\") == {\"carrier\": \"skylark-reserve-7\", \"currency\": \"USD\"}；将其作为考虑严格校验前的兼容性基线。",
+      "rationale": "未知区分支目前没有测试，修改默认回退或响应结构可能静默破坏自由格式输入的旧客户端。此测试直接锁定现有可观察行为，而非预先认定必须永远保留该策略。",
+      "evidence": [
+        {
+          "path": "src/zones.py",
+          "sha256": "d238a33ff432b712b4e2739c30b7e770dfa0d5346169b47fef063b7d07ac44a2",
+          "detail": "carrier 的默认值为 \"skylark-reserve-7\"。"
+        },
+        {
+          "path": "src/quote.py",
+          "sha256": "8a1d69da997546a44cc73a2580e9d76e5b75a7de1f91f9868f79ee47b25dac92",
+          "detail": "quote 将 carrier 和 USD 组成响应。"
+        },
+        {
+          "path": "tests/test_quote.py",
+          "sha256": "4fb75c1be8603e9ce4a2b0033bd60da569d492fb36a81be8a4d67c354ffd3404",
+          "detail": "当前测试没有 unknown 用例。"
+        },
+        {
+          "path": "README.md",
+          "sha256": "30c5fd2dcf4eaffc35db5f7554b73fb45a674eed67387454b7e7b46f41998f6a",
+          "detail": "旧客户端可能发送自由格式 zone。"
+        }
+      ],
+      "conflicts_with": []
+    }
+  ],
+  "design_options": [
+    "兼容优先：继续允许未知配送区，保留 carrier(zone) 回退值 skylark-reserve-7 与 quote 的 currency=USD；增加回归保护。",
+    "严格校验：如果业务确需拒绝未知区，通过显式 opt-in、API 版本或灰度开关引入；明确错误语义和客户端迁移期，避免未经通知直接替换现有默认成功行为。"
+  ],
+  "codex_tasks": [
+    "在 tests/test_quote.py 增加 test_unknown_zone_preserves_legacy_fallback：self.assertEqual(quote(\"unknown\"), {\"carrier\": \"skylark-reserve-7\", \"currency\": \"USD\"})；执行 python -m unittest discover -s tests -v。"
+  ],
+  "risks_constraints": [
+    "向后兼容风险：默认拒绝未知 zone 会使此前命中备用承运商并返回报价元数据的调用失败；可能打断依赖成功响应的旧客户端。",
+    "假设：部分旧客户端会提交不在 CARRIERS 中的自由格式 zone，并依赖成功回退；README 仅确认允许自由格式输入，未提供实际调用与依赖证据。",
+    "证据边界：这是合成项目，ZIP 未提供 API 层、错误响应契约、生产流量、实际客户端清单或产品契约；不能推断 HTTP 状态码、故障比例或最终应采用的产品策略。"
+  ],
+  "open_questions": [
+    "历史客户端实际会提交哪些未知配送区？是否依赖 skylark-reserve-7 回退或仅依赖 quote 返回成功？",
+    "未知区允许回退是否属于正式产品/API 契约？若决定拒绝，错误格式、版本化和迁移期如何定义？"
+  ],
+  "next_sync": [
+    "先添加并运行 unknown 完整返回值回归测试；之后核实客户端契约和实际流量，再决定维持回退还是分阶段引入严格校验。",
+    "补充评估既有 local→bike、intl→air 及 currency=USD 的回归覆盖，避免改造校验时影响已知区。"
+  ]
+}

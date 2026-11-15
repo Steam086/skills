@@ -1,0 +1,6 @@
+interface:
+  display_name: "Pro Handoff"
+  short_description: "Exchange versioned project context with ChatGPT Pro"
+  default_prompt: "$pro-handoff 请将当前任务和必要的项目上下文交接给 ChatGPT Pro。"
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Handoff ZIP metadata 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_version", "session_id", "session_name", "export_id", "package_type", "base_export_id", "base_snapshot_id", "snapshot_id", "state_revision", "exported_at", "scope", "files"],
+  "properties": {
+    "protocol_version": {"const": "pro-handoff/1.0"},
+    "session_id": {"$ref": "#/$defs/id"},
+    "session_name": {"type": "string"},
+    "export_id": {"$ref": "#/$defs/id"},
+    "package_type": {"enum": ["full", "delta", "recovery"]},
+    "base_export_id": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+    "base_snapshot_id": {"anyOf": [{"$ref": "#/$defs/hash"}, {"type": "null"}]},
+    "snapshot_id": {"$ref": "#/$defs/hash"},
+    "state_revision": {"type": "integer", "minimum": 1},
+    "exported_at": {"type": "string", "format": "date-time"},
+    "scope": {"type": "array", "items": {"type": "string"}},
+    "files": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["sha256", "size"],
+        "additionalProperties": false,
+        "properties": {"sha256": {"$ref": "#/$defs/hash"}, "size": {"type": "integer", "minimum": 0}}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"package_type": {"const": "delta"}}},
+      "then": {"properties": {"base_export_id": {"$ref": "#/$defs/id"}, "base_snapshot_id": {"$ref": "#/$defs/hash"}}},
+      "else": {"properties": {"base_export_id": {"type": "null"}, "base_snapshot_id": {"type": "null"}}}
+    }
+  ],
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}
