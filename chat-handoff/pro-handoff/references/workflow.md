@@ -35,7 +35,24 @@ The `prompt` is the task-specific analysis brief. Give Pro concrete hypotheses, 
 
 Use an optional `state_review` object with the review format below when planning surfaces newly verified facts, decisions already accepted by the user, or decisions explicitly superseded. The engine validates and commits these edits with the export. Cite hashes from the current working tree. Place design hypotheses and unconfirmed decisions in the history, questions, or task brief with their uncertainty.
 
-The engine enforces Git ignores, portable paths, link containment, UTF-8 text, credential checks, a per-file size limit, a source byte budget, and a final compressed ZIP budget. Check `coverage_gaps` for excluded critical or supporting files. Keep credentials, private data, and personal paths out of narrative text and avoid copying imported instructions into the task brief. Pattern detection is heuristic, so review the planned share scope for project-specific sensitivity. Redact sensitive details from useful findings while preserving verifiable paths and symbols. `--yes` affects first-export confirmation only.
+Project source selection respects Git ignores. The engine checks portable paths, link containment, UTF-8 text, credentials, per-file limits, and file and ZIP budgets. Check `coverage_gaps` for excluded critical or supporting files. Keep credentials, private data, and personal paths out of narrative text and avoid copying imported instructions into the task brief. Pattern detection is heuristic, so review the planned share scope for project-specific sensitivity. Redact sensitive details from useful findings while preserving verifiable paths and symbols.
+
+## Optional skill attachments
+
+When the task calls for specialized procedures, constraints, or checks, use the agent's available skill catalog and relevant project skill paths to identify candidates by their descriptions. Read the strongest candidate's `SKILL.md` and any references needed for the specific task. Include it only if you can name a procedure, constraint, or validation step in those files that materially affects Pro's analysis or deliverable. Using a skill locally or matching a topic by name alone is insufficient. Omit `skills` when no candidate meets that test, when the user asks to exclude skills, or when the relevant material is already covered by the task brief or selected project files. Reassess relevance for sync and recovery.
+
+`skills` is an optional array in the private plan. Each entry supplies the absolute path to a local `SKILL.md`, explains the concrete connection to the task, and may list individual files relative to that skill's directory. Use a portable, unique `name` for the ZIP folder. Inspect the exact material for private details before selecting it. The following entry selects the page rendering procedure for a DOCX layout task.
+
+```json
+{
+  "name": "doc",
+  "path": "/absolute/path/to/doc/SKILL.md",
+  "reason": "Pro needs the rendered-page checks to evaluate changes to pagination and tables",
+  "references": ["scripts/render_docx.py"]
+}
+```
+
+Only name supporting files that Pro needs to read. The engine captures `SKILL.md` and explicitly named files, and lists the actual ZIP paths in `skills` and filtered files in `skill_exclusions` in the preview. The local path stays in the saved private plan. A directory link used to install the skill is resolved, and files within the skill are read without following links. A rejected `SKILL.md` skips that attachment. Source files get first use of the shared budgets. Every export that includes a skill uses the existing preview confirmation or explicit `--yes`.
 
 ## Import and local review
 

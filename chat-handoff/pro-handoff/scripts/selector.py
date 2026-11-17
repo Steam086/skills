@@ -1,9 +1,9 @@
-"""Validate Codex's semantic plan and enforce source capture policy and budgets."""
+"""Validate the semantic plan and enforce file capture policy and budgets."""
 
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
-from common import HandoffError, fields, require_text, safe_path, text_list
+from common import LABEL, HandoffError, fields, require_text, safe_path, text_list
 from scanner import policy, read_bytes, safe_content, unavailable
 from snapshot import path_key
 
@@ -27,7 +27,7 @@ def safe_text(text, name):
 
 
 def validate_plan(plan):
-    fields(plan, REQUIRED, ("scope", "state_review"), name="Handoff Plan")
+    fields(plan, REQUIRED, ("scope", "skills", "state_review"), name="Handoff Plan")
     for key in ("goal", "overview", "prompt"):
         safe_text(require_text(plan[key], key), key)
     for key in SECTIONS:
@@ -53,7 +53,30 @@ def validate_plan(plan):
         if not isinstance(entry["priority"], str) or entry["priority"] not in PRIORITY:
             raise HandoffError(f"Invalid priority for {path}")
         safe_text(require_text(entry["reason"], "selection reason", 2000), "selection reason")
+    validate_skill_plan(plan.get("skills", []))
     return plan
+
+
+def validate_skill_plan(entries):
+    if not isinstance(entries, list):
+        raise HandoffError("skills must be an array")
+    names = set()
+    for entry in entries:
+        fields(entry, ("name", "path", "reason"), ("references",), name="selected skill")
+        name = require_text(entry["name"], "skill name", 80)
+        if not LABEL.fullmatch(name) or not display_path(name) or path_key(name) in names:
+            raise HandoffError("Skill names must be unique and portable")
+        names.add(path_key(name))
+        location = Path(require_text(entry["path"], "local skill path", 4096))
+        if not location.is_absolute() or location.name != "SKILL.md" or ".." in location.parts:
+            raise HandoffError("Skill path must be an absolute path to SKILL.md")
+        safe_text(require_text(entry["reason"], "skill selection reason", 2000), "skill selection reason")
+        seen = {path_key("SKILL.md")}
+        for path in text_list(entry.get("references", []), "skill references"):
+            safe_path(f"skills/{name}/{path}")
+            if path_key(path) in seen:
+                raise HandoffError(f"Duplicate reference for skill {name}")
+            seen.add(path_key(path))
 
 
 def select(root, scan, plan, limits):
@@ -95,6 +118,45 @@ def select(root, scan, plan, limits):
         remaining -= len(data)
         exclusions.pop(path, None)
     return content, exclusions, gaps
+
+
+def select_skills(plan, limits, source):
+    content, selected, exclusions = {}, [], []
+    remaining = limits.max_zip_bytes - sum(map(len, source.values()))
+    for entry in plan.get("skills", []):
+        name = entry["name"]
+        included = []
+        for path in ("SKILL.md", *entry.get("references", [])):
+            relative = f"{name}/{path}"
+            reason = policy(relative)
+            if not reason and safe_content(relative.encode()):
+                reason = "sensitive path content"
+            if not reason and len(source) + len(content) >= limits.max_files:
+                reason = "file-count budget exceeded"
+            if not reason:
+                try:
+                    if path == "SKILL.md":
+                        # A skill may be installed via a directory link. Anchor all reads in its resolved root.
+                        folder = Path(entry["path"]).parent.resolve(strict=True)
+                    data = read_bytes(folder, path, limits.max_file_bytes)
+                except (OSError, HandoffError, RuntimeError) as error:
+                    reason = unavailable(error)
+                else:
+                    reason = safe_content(data)
+                    if not reason and len(data) > remaining:
+                        reason = "total file byte budget exceeded"
+            if reason:
+                exclusions.append({"name": name, "path": display_path(relative) or "[restricted path]",
+                                   "reason": reason})
+                if path == "SKILL.md":
+                    break
+                continue
+            content[relative] = data
+            included.append(f"skills/{relative}")
+            remaining -= len(data)
+        if included:
+            selected.append({"name": name, "reason": entry["reason"], "paths": included})
+    return content, selected, exclusions
 
 
 def display_path(path):

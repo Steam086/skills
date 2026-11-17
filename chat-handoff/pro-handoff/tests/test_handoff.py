@@ -368,6 +368,77 @@ class HandoffTest(unittest.TestCase):
         self.assertIn("above the", self.cmd("export", "--plan", "-", "--yes", "--max-zip-bytes", "1024",
                                            data=self.plan, ok=False))
 
+    def test_skill_attachments_are_explicit_scoped_and_bound_to_preview(self):
+        skill = Path(self.temp.name).resolve() / "local-skills" / "dispatch"
+        references = skill / "references"
+        references.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("# Dispatch verification\n")
+        (references / "zones.md").write_text("Check unknown zones against the carrier contract.\n")
+        (references / "other.md").write_text("Unselected material.\n")
+        (references / ".env").write_text("PASSWORD=not-for-upload\n")
+        (references / "note.md").write_text("api_key = 'not-for-upload'\n")
+        (references / "diagram.bin").write_bytes(b"\x00\xff")
+        installed = self.root / ".agents" / "skills" / "dispatch"
+        installed.parent.mkdir(parents=True)
+        try:
+            installed.symlink_to(skill, target_is_directory=True)
+            (references / "outside.md").symlink_to(self.root / "README.md")
+        except OSError:
+            self.skipTest("Symlinks unavailable")
+
+        baseline = self.export()
+        self.assertNotIn("skills", self.metadata(baseline))
+        self.cmd("mark-sent", baseline["export_id"])
+        plan = deepcopy(self.plan)
+        plan["skills"] = [{
+            "name": "dispatch", "path": str(installed / "SKILL.md"),
+            "reason": "Pro needs the carrier contract to assess zone validation",
+            "references": [f"references/{name}" for name in (
+                "zones.md", ".env", "note.md", "diagram.bin", "outside.md",
+            )],
+        }]
+        options = ("--type", "delta", "--plan", "-")
+        preview = self.cmd("preview", *options, data=plan)
+        self.assertTrue(preview["preview_required"])
+        self.assertEqual(len(preview["skill_exclusions"]), 4)
+        paths = ["skills/dispatch/SKILL.md", "skills/dispatch/references/zones.md"]
+        self.assertEqual(preview["skills"][0]["paths"], paths)
+        self.assertIn("Export with skill attachments requires preview", self.cmd("export", *options, data=plan, ok=False))
+
+        with (references / "zones.md").open("a") as reference:
+            reference.write("Validate the default route as well.\n")
+        self.assertIn("Preview changed", self.cmd("export", *options, "--approve", preview["preview_token"],
+                                                   data=plan, ok=False))
+        preview = self.cmd("preview", *options, data=plan)
+        delta = self.cmd("export", *options, "--approve", preview["preview_token"], data=plan)
+        self.assertEqual(delta["source_file_count"], 0)
+        self.assertEqual(delta["snapshot_id"], baseline["snapshot_id"])
+        self.assertIn(paths[0], delta["prompt"])
+        delta_meta = self.cmd("verify", delta["zip"], "--base-export-id", baseline["export_id"])
+        self.assertEqual(sorted(delta_meta["skills"]), [path.removeprefix("skills/") for path in paths])
+        with ZipFile(delta["zip"]) as archive:
+            self.assertEqual(sorted(path for path in archive.namelist() if path.startswith("skills/")), paths)
+            self.assertNotIn(str(installed), archive.read("context/HANDOFF_PLAN.json").decode())
+
+        recovery = self.cmd("recover", "--plan", "-", "--yes", data=plan)
+        self.assertEqual(verify(recovery["zip"])["skills"], delta_meta["skills"])
+        tampered = BytesIO()
+        with ZipFile(recovery["zip"]) as original, ZipFile(tampered, "w") as modified:
+            for path in original.namelist():
+                modified.writestr(path, b"tampered" if path == paths[0] else original.read(path))
+        with self.assertRaisesRegex(HandoffError, "Incorrect skills hash"):
+            verify(tampered)
+        self.assertNotIn("skills", self.metadata(self.cmd("recover", "--plan", "-", data=self.plan)))
+
+        limited = self.cmd("preview", *options, "--max-files", "4", data=plan)
+        self.assertFalse(limited["preview_required"])
+        self.assertEqual(limited["skills"], [])
+        self.assertEqual(limited["skill_exclusions"][0]["reason"], "file-count budget exceeded")
+        (skill / "SKILL.md").write_text("api_key = 'not-for-upload'\n")
+        self.assertNotIn("skills", self.metadata(self.cmd("export", *options, data=plan)))
+        plan["skills"][0]["references"] = ["../outside.md"]
+        self.assertIn("Unsafe relative path", self.cmd("preview", *options, data=plan, ok=False))
+
     def test_tampered_zip_and_corrupt_base_rejected(self):
         package = self.export()
         unsafe = BytesIO()

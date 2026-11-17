@@ -57,7 +57,7 @@ def parser():
         if name != "preview":
             authorization = export.add_mutually_exclusive_group()
             authorization.add_argument("--approve", metavar="PREVIEW_TOKEN")
-            authorization.add_argument("--yes", action="store_true", help="explicit noninteractive first-export confirmation")
+            authorization.add_argument("--yes", action="store_true", help="explicit noninteractive export confirmation")
     command("mark-sent", "record delivery after the user uploads an export").add_argument("export_id")
     command("import-response", "archive a JSON or Markdown Pro response").add_argument("path", help="path or - for stdin")
     command("review", "apply a locally authored state review").add_argument("path", help="path or - for stdin")
@@ -134,7 +134,8 @@ def run(args, store):
             if args.approve and args.approve != result["preview_token"]:
                 raise HandoffError("Preview changed. Generate a new preview and confirm its current token.")
             if result["preview_required"] and not (args.approve or args.yes):
-                raise HandoffError("First export requires preview and --approve TOKEN, or explicit --yes")
+                scope = "Export with skill attachments" if result["skills"] else "First export"
+                raise HandoffError(f"{scope} requires preview and --approve TOKEN, or explicit --yes")
             if state is None:
                 folder, state = store.select(index, selector, create=True, goal=plan["goal"])
             result = publish(store, folder, state, plan, limits, prepared)
@@ -186,6 +187,10 @@ def report_output(result, args):
             print("No confirmed delta baseline. Produced a standalone full export.")
         print("Exclusions:", json_bytes(result["exclusion_counts"]).decode().strip())
         print("Coverage gaps:", json_bytes(result["coverage_gaps"]).decode().strip())
+        if result["skills"]:
+            print("Skill attachments:", json_bytes(result["skills"]).decode().strip())
+        if result["skill_exclusions"]:
+            print("Skill exclusions:", json_bytes(result["skill_exclusions"]).decode().strip())
         print()
         print(terminal_text(result["prompt"]), end="")
     else:

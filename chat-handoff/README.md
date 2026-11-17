@@ -26,7 +26,9 @@
 | `$pro-handoff use <名称或 ID>` | 切换会话 |
 | `$pro-handoff review …` | 维护已核实事实、已接受决策和待审条目 |
 
-操作可加 `--session <名称或 ID>` 或 `--project <目录>`。Git 项目自动定位到仓库根目录；非 Git 项目使用所指定目录或当前目录。首次导出按会话确认，显式 `--yes` 仍会应用文件安全过滤。V1 默认最多 120 个源文件，单文件 384 KiB，压缩 ZIP 8 MiB。可按需要使用 `--max-files`、`--max-file-bytes` 和 `--max-zip-bytes` 调整。
+操作可加 `--session <名称或 ID>` 或 `--project <目录>`。Git 项目自动定位到仓库根目录；非 Git 项目使用所指定目录或当前目录。会话首次导出及携带 skill 的导出需要确认，显式 `--yes` 仍会应用文件安全过滤。默认源文件与 skill 文件合计最多 120 个，单文件 384 KiB，压缩 ZIP 8 MiB。可按需要使用 `--max-files`、`--max-file-bytes` 和 `--max-zip-bytes` 调整。
+
+规划时，Codex 或 Pi 会在可用的本地 skills 中找与任务直接相关的资料。只有当某项流程、约束或检查会影响 Pro 的分析或交付时，才将对应的 `SKILL.md` 和逐项选定的参考文件列入预览。确认后，这些文件进入 ZIP 的 `skills/` 目录。普通任务可以省略 skill，每次 `sync` 或 `recover` 会重新评估相关性。
 
 ## 安装与工程入口
 

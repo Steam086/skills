@@ -3,7 +3,7 @@
 import stat
 from zipfile import BadZipFile, ZipFile
 
-from common import ID, PROTOCOL, HandoffError, fields, digest, parse_json, safe_path
+from common import ID, LABEL, PROTOCOL, HandoffError, fields, digest, parse_json, safe_path
 from importer import matches
 from scanner import policy, safe_content
 from snapshot import path_key, payload_paths, replay, snapshot_id, validate_manifest
@@ -36,7 +36,7 @@ def verify(zip_path, *, base=None, base_export_id=None, max_bytes=128 * 1024 * 1
             meta = parse_json(archive.read("HANDOFF.json"))
             fields(meta, ("protocol_version", "session_id", "session_name", "export_id",
                           "package_type", "base_export_id", "base_snapshot_id", "snapshot_id",
-                          "state_revision", "exported_at", "scope", "files"), name="HANDOFF")
+                          "state_revision", "exported_at", "scope", "files"), ("skills",), name="HANDOFF")
             if meta["protocol_version"] != PROTOCOL:
                 raise HandoffError("Unsupported ZIP protocol")
             for key in ("session_id", "export_id"):
@@ -54,6 +54,12 @@ def verify(zip_path, *, base=None, base_export_id=None, max_bytes=128 * 1024 * 1
             validate_manifest(files)
             if snapshot_id(files) != meta["snapshot_id"] or parse_json(archive.read("metadata/MANIFEST.json")) != files:
                 raise HandoffError("Target manifest or snapshot ID mismatch")
+            skills = meta.get("skills", {})
+            validate_manifest(skills)
+            for path in skills:
+                name, slash, _ = path.partition("/")
+                if not slash or not LABEL.fullmatch(name) or f"{name}/SKILL.md" not in skills:
+                    raise HandoffError(f"Invalid skill attachment path: {path}")
 
             required = ENTRIES.copy()
             kind = meta["package_type"]
@@ -76,19 +82,22 @@ def verify(zip_path, *, base=None, base_export_id=None, max_bytes=128 * 1024 * 1
                 if kind == "recovery":
                     required.update(RECOVERY_ENTRIES)
                 paths = set(files)
-            if set(archive.namelist()) != required | {"source/" + path for path in paths}:
-                raise HandoffError("ZIP entries do not match the protocol and source manifest")
+            expected = required | {"source/" + path for path in paths} | {"skills/" + path for path in skills}
+            if set(archive.namelist()) != expected:
+                raise HandoffError("ZIP entries do not match the protocol and manifests")
             if archive.testzip() is not None:
                 raise HandoffError("ZIP CRC check failed")
-            for path in files:
-                if policy(path) or safe_content(path.encode()):
-                    raise HandoffError(f"Restricted source path {path}")
-            for path in paths:
-                data = archive.read("source/" + path)
-                if len(data) != files[path]["size"] or digest(data) != files[path]["sha256"]:
-                    raise HandoffError(f"Incorrect source hash or size for {path}")
-                if safe_content(data):
-                    raise HandoffError(f"Restricted source content at {path}")
+            for prefix, entry_manifest, payload in (("source", files, paths), ("skills", skills, skills)):
+                for path in entry_manifest:
+                    if policy(path) or safe_content(path.encode()):
+                        raise HandoffError(f"Restricted {prefix} path {path}")
+                for path in payload:
+                    data = archive.read(f"{prefix}/{path}")
+                    entry = entry_manifest[path]
+                    if len(data) != entry["size"] or digest(data) != entry["sha256"]:
+                        raise HandoffError(f"Incorrect {prefix} hash or size for {path}")
+                    if safe_content(data):
+                        raise HandoffError(f"Restricted {prefix} content at {path}")
             return meta
     except (BadZipFile, KeyError, UnicodeError, RuntimeError) as error:
         raise HandoffError(f"Invalid handoff ZIP: {error}") from error
