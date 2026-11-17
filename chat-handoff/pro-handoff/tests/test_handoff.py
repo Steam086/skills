@@ -24,6 +24,7 @@ from importer import parse_response
 from scanner import read_bytes
 from selector import Limits
 from session_store import Store, write_record
+from snapshot import snapshot_id
 from validator import verify
 
 
@@ -55,6 +56,11 @@ class HandoffTest(unittest.TestCase):
                 {"path": path, "priority": "critical", "reason": "Explains zone dispatch"}
                 for path in ("parcel/app.py", "parcel/route.py", "tests/test_quote.py", "README.md")
             ],
+            "required_context": [{
+                "question": "How does the quote endpoint handle unknown zones?",
+                "required_files": ["parcel/app.py", "parcel/route.py"],
+                "reason": "The endpoint and routing implementation establish the fallback behavior.",
+            }],
         }
 
     def write(self, name, text):
@@ -267,6 +273,10 @@ class HandoffTest(unittest.TestCase):
         self.assertEqual(delta["source_file_count"], 0)
         self.cmd("mark-sent", delta["export_id"])
         scope["files"] = []
+        scope["required_context"] = []
+        scope["goal"] = "Record removal of the dispatch implementation and tests."
+        scope["prompt"] = "Acknowledge these deletions; do not analyze the removed implementation."
+        scope["questions"] = []
         for path in ("parcel/app.py", "parcel/route.py", "tests/test_quote.py"):
             (self.root / path).unlink()
         empty = self.export("delta", scope)
@@ -334,6 +344,186 @@ class HandoffTest(unittest.TestCase):
         with ZipFile(recovered["zip"]) as archive:
             self.assertEqual(archive.read("context/STATE.md").count(b"Evidence requires revalidation."), 3)
 
+    def test_critical_gaps_block_publication_even_with_confirmation(self):
+        cases = [
+            ("missing", (), None),
+            ("file count", ("--max-files", "1"), "file-count budget exceeded"),
+            ("file size", ("--max-file-bytes", "10"), "single-file size budget exceeded"),
+            ("total bytes", ("--max-zip-bytes", "10"), "total source byte budget exceeded"),
+            ("credential", (), "potential embedded credential"),
+        ]
+        for name, limits, reason in cases:
+            self.write("parcel/route.py", "def pick(zone): return 'standard'\n")
+            if name == "missing":
+                (self.root / "parcel/route.py").unlink()
+            elif name == "credential":
+                self.write("parcel/route.py", "api_key = 'not-for-upload'\n")
+            for kind in ("full", "delta", "recovery"):
+                with self.subTest(case=name, kind=kind):
+                    options = ("--plan", "-", *limits)
+                    preview = self.cmd("preview", "--type", kind, *options, data=self.plan)
+                    self.assertFalse(preview["publishable"])
+                    if reason:
+                        self.assertTrue(any(row["reason"] == reason for row in preview["blocking_gaps"]))
+                    command = ("recover",) if kind == "recovery" else ("export", "--type", kind)
+                    for consent in (("--yes",), ("--approve", preview["preview_token"])):
+                        error = self.cmd(*command, *options, *consent, data=self.plan, ok=False)
+                        self.assertIn("Handoff blocked", error)
+                        self.assertIn("ask the user", error)
+                        self.assertIn("do not override", error)
+        self.assertEqual(self.cmd("status")["sessions"], {})
+        self.assertEqual(list((self.root / ".pro-handoff").rglob("*.zip")), [])
+        self.assertEqual(list((self.root / ".pro-handoff").rglob("prompts/*")), [])
+
+    def test_requirements_catch_unselected_or_downgraded_dependencies(self):
+        plan = deepcopy(self.plan)
+        plan["files"] = [row for row in plan["files"] if row["path"] != "parcel/route.py"]
+        for downgrade in (False, True):
+            with self.subTest(downgrade=downgrade):
+                if downgrade:
+                    plan["files"].append({"path": "parcel/route.py", "priority": "optional", "reason": "A fixture"})
+                options = ("--plan", "-", "--max-files", "3")
+                preview = self.cmd("preview", *options, data=plan)
+                self.assertFalse(preview["publishable"])
+                blocker = preview["blocking_gaps"][0]
+                self.assertEqual(blocker["path"], "parcel/route.py")
+                self.assertIn(plan["required_context"][0]["question"], blocker["required_by"])
+                self.assertIn("Handoff blocked", self.cmd("export", *options, "--yes", data=plan, ok=False))
+
+    def test_empty_selection_can_be_previewed_but_not_published_standalone(self):
+        for row in self.plan["files"]:
+            (self.root / row["path"]).unlink()
+        preview = self.cmd("preview", "--plan", "-", data=self.plan)
+        self.assertEqual(preview["snapshot_file_count"], 0)
+        self.assertFalse(preview["publishable"])
+        self.assertTrue(preview["blocking_gaps"])
+        self.assertIn("Handoff blocked", self.cmd("export", "--plan", "-", "--yes", data=self.plan, ok=False))
+        self.plan["files"] = []
+        self.plan["required_context"] = []
+        preview = self.cmd("preview", "--plan", "-", data=self.plan)
+        self.assertFalse(preview["publishable"])
+        self.assertIn("No source files", preview["blocking_gaps"][0]["reason"])
+
+    def test_nonessential_gaps_are_warnings(self):
+        self.plan["files"] += [
+            {"path": "notes.txt", "priority": "supporting", "reason": "Optional background"},
+            {"path": "diagram.txt", "priority": "optional", "reason": "Optional illustration"},
+        ]
+        preview = self.cmd("preview", "--plan", "-", data=self.plan)
+        self.assertTrue(preview["publishable"])
+        self.assertEqual(preview["blocking_gaps"], [])
+        self.assertEqual([row["path"] for row in preview["coverage_gaps"]], ["notes.txt"])
+        self.assertEqual(verify(self.export()["zip"])["package_type"], "full")
+
+    def test_current_local_evidence_cannot_be_omitted(self):
+        full = self.export()
+        self.cmd("mark-sent", full["export_id"])
+        self.accept_fallback(self.metadata(full))
+        self.cmd("review", "-", data={"verified_facts": [{
+            "id": "constant-route", "text": "Routing returns a constant.",
+            "evidence": self.response(self.metadata(full))["facts"][0]["evidence"],
+        }]})
+        plan = deepcopy(self.plan)
+        plan["files"] = [row for row in plan["files"] if row["path"] != "parcel/route.py"]
+        plan["required_context"][0]["required_files"] = ["parcel/app.py"]
+        for kind in ("full", "delta", "recovery"):
+            with self.subTest(kind=kind):
+                preview = self.cmd("preview", "--type", kind, "--plan", "-", data=plan)
+                self.assertFalse(preview["publishable"])
+                reasons = preview["blocking_gaps"][0]["required_by"]
+                self.assertIn("accepted_decisions: fallback", reasons)
+                self.assertIn("verified_facts: constant-route", reasons)
+                self.assertIn("Handoff blocked", self.cmd("export", "--type", kind, "--plan", "-",
+                                                         "--yes", data=plan, ok=False))
+
+    def test_required_evidence_reuses_delta_base_but_recovery_carries_source(self):
+        full = self.export()
+        self.accept_fallback(self.metadata(full))
+        self.cmd("mark-sent", full["export_id"])
+        delta = self.export("delta")
+        meta = self.cmd("verify", delta["zip"], "--base-export-id", full["export_id"])
+        self.assertEqual(delta["source_file_count"], 0)
+        self.assertIn("parcel/route.py", meta["required_files"])
+        with ZipFile(delta["zip"]) as archive:
+            self.assertNotIn("source/parcel/route.py", archive.namelist())
+        recovery = self.cmd("recover", "--plan", "-", data=self.plan)
+        with ZipFile(recovery["zip"]) as archive:
+            self.assertIn("source/parcel/route.py", archive.namelist())
+        self.assertIsNone(verify(recovery["zip"])["base_export_id"])
+
+    def test_blocked_publication_does_not_commit_state_or_artifacts(self):
+        full = self.export()
+        self.cmd("mark-sent", full["export_id"])
+        status = self.cmd("status")
+        folder = Path(status["state_file"]).parent
+        before = {p.relative_to(folder): p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+        plan = deepcopy(self.plan)
+        plan["progress"] = ["This must not be committed by a blocked export."]
+        plan["state_review"] = {"accepted_decisions": [{
+            "id": "new-decision", "text": "A new user choice", "evidence": [],
+        }]}
+        self.assertIn("Handoff blocked", self.cmd("export", "--type", "delta", "--plan", "-",
+                        "--yes", "--max-files", "1", data=plan, ok=False))
+        after = {p.relative_to(folder): p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+        self.assertEqual(after, before)
+        store = Store(self.root, False)
+        with store.locked() as index:
+            folder, state = store.select(index)
+            staged = prepare(self.root, False, folder, state, plan, Limits(max_files=1), "delta")
+            with self.assertRaisesRegex(HandoffError, "Handoff blocked"):
+                publish(store, folder, state, plan, Limits(max_files=1), staged)
+        self.assertEqual(self.cmd("status")["session"]["latest_export_id"], full["export_id"])
+
+    def test_required_context_validation_and_sensitive_path_redaction(self):
+        for entries in (None, [{}], [{"question": "Why?", "required_files": [], "reason": "Need evidence"}],
+                        [{"question": "Why?", "required_files": ["../outside"], "reason": "Need evidence"}],
+                        [{"question": "Why?", "required_files": ["README.md", "README.md"], "reason": "Duplicate"}]):
+            with self.subTest(entries=entries):
+                plan = {**self.plan, "required_context": entries}
+                self.cmd("preview", "--plan", "-", data=plan, ok=False)
+        plan = deepcopy(self.plan)
+        del plan["required_context"]
+        self.assertIn("required_context", self.cmd("preview", "--plan", "-", data=plan, ok=False))
+        self.write(".env", "PASSWORD=not-for-upload\n")
+        plan["required_context"] = [{"question": "Which configuration is used?", "required_files": [".env"],
+                                     "reason": "Need configuration evidence"}]
+        preview = self.cmd("preview", "--plan", "-", data=plan)
+        self.assertEqual(preview["blocking_gaps"][0]["path"], "[restricted path]")
+        self.assertEqual(preview["blocking_gaps"][0]["reason"], "sensitive path")
+        self.assertIn("Handoff blocked", self.cmd("export", "--plan", "-", "--yes", data=plan, ok=False))
+
+    def test_verifier_enforces_required_files_and_accepts_complete_legacy_packages(self):
+        full = self.export()
+        with ZipFile(full["zip"]) as archive:
+            original = {name: archive.read(name) for name in archive.namelist()}
+        for declared in (True, False):
+            entries = original.copy()
+            meta = json.loads(entries["HANDOFF.json"])
+            del meta["files"]["parcel/route.py"]
+            meta["snapshot_id"] = snapshot_id(meta["files"])
+            if not declared:
+                del meta["required_files"]
+            entries["HANDOFF.json"] = json_bytes(meta)
+            entries["metadata/MANIFEST.json"] = json_bytes(meta["files"])
+            del entries["source/parcel/route.py"]
+            broken = BytesIO()
+            with ZipFile(broken, "w") as archive:
+                for name, data in entries.items():
+                    archive.writestr(name, data)
+            with self.assertRaisesRegex(HandoffError, "Necessary files are missing"):
+                verify(broken)
+        legacy = BytesIO()
+        meta = json.loads(original["HANDOFF.json"])
+        del meta["required_files"]
+        plan = json.loads(original["context/HANDOFF_PLAN.json"])
+        del plan["required_context"]
+        original["HANDOFF.json"] = json_bytes(meta)
+        original["context/HANDOFF_PLAN.json"] = json_bytes(plan)
+        with ZipFile(legacy, "w") as archive:
+            for name, data in original.items():
+                archive.writestr(name, data)
+        self.assertEqual(verify(legacy)["package_type"], "full")
+
     def test_security_filters_and_coverage_budgets(self):
         self.write(".env", "PASSWORD=not-for-upload\n")
         self.write("parcel/note", "api_key = 'not-for-upload'\n")
@@ -350,7 +540,7 @@ class HandoffTest(unittest.TestCase):
             self.skipTest("Symlinks unavailable")
         for path in (".env", "parcel/note", "parcel/ignored.tmp", "build/cache.txt", "parcel/data",
                      "parcel/binary", "parcel/link.txt", "portal/outside.txt"):
-            self.plan["files"].append({"path": path, "priority": "critical", "reason": "Exercise coverage"})
+            self.plan["files"].append({"path": path, "priority": "supporting", "reason": "Nonessential coverage fixture"})
         package = self.export("full", self.plan, "--max-file-bytes", "150")
         self.assertEqual(package["snapshot_file_count"], 4)
         self.assertEqual(len(package["coverage_gaps"]), 8)

@@ -6,6 +6,7 @@ from zipfile import BadZipFile, ZipFile
 from common import ID, LABEL, PROTOCOL, HandoffError, fields, digest, parse_json, safe_path
 from importer import matches
 from scanner import policy, safe_content
+from selector import required_plan_files, validate_plan
 from snapshot import path_key, payload_paths, replay, snapshot_id, validate_manifest
 
 ENTRIES = {
@@ -36,7 +37,7 @@ def verify(zip_path, *, base=None, base_export_id=None, max_bytes=128 * 1024 * 1
             meta = parse_json(archive.read("HANDOFF.json"))
             fields(meta, ("protocol_version", "session_id", "session_name", "export_id",
                           "package_type", "base_export_id", "base_snapshot_id", "snapshot_id",
-                          "state_revision", "exported_at", "scope", "files"), ("skills",), name="HANDOFF")
+                          "state_revision", "exported_at", "scope", "files"), ("skills", "required_files"), name="HANDOFF")
             if meta["protocol_version"] != PROTOCOL:
                 raise HandoffError("Unsupported ZIP protocol")
             for key in ("session_id", "export_id"):
@@ -87,6 +88,25 @@ def verify(zip_path, *, base=None, base_export_id=None, max_bytes=128 * 1024 * 1
                 raise HandoffError("ZIP entries do not match the protocol and manifests")
             if archive.testzip() is not None:
                 raise HandoffError("ZIP CRC check failed")
+            plan = parse_json(archive.read("context/HANDOFF_PLAN.json"))
+            if not isinstance(plan, dict):
+                raise HandoffError("Invalid archived Handoff Plan")
+            # Older 1.0 packages predate the independent coverage declaration.
+            if "required_files" not in meta:
+                plan.setdefault("required_context", [])
+            plan = validate_plan({key: value for key, value in plan.items() if key != "skills"})
+            necessary = required_plan_files(plan)
+            if "required_files" in meta:
+                declared = meta["required_files"]
+                if not isinstance(declared, list):
+                    raise HandoffError("Invalid required_files declaration")
+                for path in declared:
+                    safe_path(path)
+                if len(set(declared)) != len(declared) or not necessary <= set(declared):
+                    raise HandoffError("Required file declarations do not cover the Handoff Plan")
+                necessary.update(declared)
+            if necessary - files.keys():
+                raise HandoffError("Necessary files are missing from the target snapshot")
             for prefix, entry_manifest, payload in (("source", files, paths), ("skills", skills, skills)):
                 for path in entry_manifest:
                     if policy(path) or safe_content(path.encode()):

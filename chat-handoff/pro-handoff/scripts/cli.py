@@ -8,7 +8,7 @@ import sys
 
 from common import (ID, HandoffError, atomic_write, digest, json_bytes, new_id, parse_json,
                     require_text, terminal_text)
-from exporter import prepare, publish
+from exporter import prepare, publish, require_publishable
 from importer import MAX_RESPONSE, import_report, matches, refresh_facts, review, saved_manifest
 from scanner import discover, project
 from selector import Limits, validate_plan
@@ -133,6 +133,7 @@ def run(args, store):
                 return result
             if args.approve and args.approve != result["preview_token"]:
                 raise HandoffError("Preview changed. Generate a new preview and confirm its current token.")
+            require_publishable(result)
             if result["preview_required"] and not (args.approve or args.yes):
                 scope = "Export with skill attachments" if result["skills"] else "First export"
                 raise HandoffError(f"{scope} requires preview and --approve TOKEN, or explicit --yes")

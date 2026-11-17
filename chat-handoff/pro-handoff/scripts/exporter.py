@@ -9,7 +9,7 @@ from common import (PROTOCOL, SKILL, HandoffError, atomic_write, canonical, dige
                     new_id, now)
 from importer import refresh_facts, review, saved_manifest
 from scanner import discover, read_bytes, safe_content
-from selector import display_path, scope_label, select, select_skills
+from selector import display_path, required_plan_files, scope_label, select, select_skills
 from session_store import CATEGORIES, render_state
 from snapshot import changes, manifest, payload_paths, snapshot_id, validate_manifest
 from validator import verify
@@ -74,6 +74,53 @@ def shareable_state(view):
     return view, dropped
 
 
+def required_files(plan, view):
+    paths = required_plan_files(plan)
+    # Pending Pro advice and superseded decisions are not current requirements.
+    for key in ("verified_facts", "accepted_decisions"):
+        for item in view["knowledge"][key]:
+            paths.update(row["path"] for row in item.get("evidence", []))
+    return paths
+
+
+def blocking_gaps(plan, view, files, exclusions, standalone):
+    gaps = []
+    for path in sorted(required_files(plan, view) - files.keys()):
+        needed_by = [row["question"] for row in plan["required_context"] if path in row["required_files"]]
+        needed_by += [row["reason"] for row in plan["files"]
+                      if row["path"] == path and row["priority"] == "critical"]
+        for key in ("verified_facts", "accepted_decisions"):
+            needed_by += [f"{key}: {item['id']}" for item in view["knowledge"][key]
+                          if any(row["path"] == path for row in item.get("evidence", []))]
+        gaps.append({
+            "path": display_path(path) or "[restricted path]",
+            "reason": exclusions.get(path, "required file was not selected"),
+            "required_by": needed_by,
+        })
+    if standalone and not files and not gaps:
+        gaps.append({"path": None, "reason": "No source files passed selection",
+                     "required_by": ["standalone handoff"]})
+    return gaps
+
+
+def require_publishable(summary):
+    gaps = summary["blocking_gaps"]
+    if gaps:
+        details = "\n".join(
+            f"- {row['path'] or '(source snapshot)'}: {row['reason']}; needed for: "
+            + "; ".join(row["required_by"]) for row in gaps[:100]
+        )
+        if len(gaps) > 100:
+            details += f"\n- {len(gaps) - 100} more blockers; inspect the preview."
+        raise HandoffError(
+            "Handoff blocked: necessary files are missing. No ZIP or Prompt was published.\n"
+            + details + "\nSafely complete the selection and re-preview. If this cannot be resolved locally, "
+            "pause the handoff and ask the user for the missing evidence or a task-scope decision. "
+            "Do not downgrade necessary files or remove citations to bypass this check. "
+            "--yes and --approve do not override completeness or security checks."
+        )
+
+
 def prepare(root, is_git, folder, state, plan, limits, requested, *, session_name="default"):
     if min(limits.max_zip_bytes, limits.max_file_bytes, limits.max_files) < 1:
         raise HandoffError("Export budgets must be positive")
@@ -85,8 +132,6 @@ def prepare(root, is_git, folder, state, plan, limits, requested, *, session_nam
     skill_files = manifest(skill_content)
     validate_manifest(skill_files)
     base_id = state["confirmed_base_export_id"] if requested == "delta" and state else None
-    if not files and not base_id:
-        raise HandoffError("No source files passed selection. Review discovery, exclusions and the Handoff Plan.")
     kind, previous, operations = requested, None, None
     if base_id:
         record = state["exports"].get(base_id)
@@ -104,6 +149,7 @@ def prepare(root, is_git, folder, state, plan, limits, requested, *, session_nam
     public_gaps = [{**gap, "path": display_path(gap["path"]) or "[restricted path]"} for gap in gaps]
     view = export_state(root, folder, state, plan)
     _, dropped = shareable_state(view)
+    blockers = blocking_gaps(plan, view, files, exclusions, base_id is None)
     session_name = state["session_name"] if state else session_name
     summary = {
         "project": str(root), "type": kind, "requested_type": requested, "base_export_id": base_id,
@@ -114,6 +160,7 @@ def prepare(root, is_git, folder, state, plan, limits, requested, *, session_nam
                       "included_in_zip": entry["path"] in path_set}
                      for entry in plan["files"] if entry["path"] in files],
         "exclusion_counts": dict(counts), "coverage_gaps": public_gaps,
+        "publishable": not blockers, "blocking_gaps": blockers,
         "skills": skills, "skill_exclusions": skill_exclusions,
         "operations": operations, "restricted_state_items": dropped,
     }
@@ -245,6 +292,7 @@ def archive_entries(root, meta, plan, summary, scan, exclusions, view):
 
 def publish(store, folder, state, plan, limits, prepared):
     summary, scan, exclusions, files, content, previous, view, skill_content, skill_files = prepared
+    require_publishable(summary)
     export_id = new_id()
     ident = snapshot_id(files)
     view["session_name"] = state["session_name"]
@@ -254,6 +302,7 @@ def publish(store, folder, state, plan, limits, prepared):
         "export_id": export_id, "package_type": summary["type"], "base_export_id": summary["base_export_id"],
         "base_snapshot_id": snapshot_id(previous) if previous is not None else None, "snapshot_id": ident,
         "state_revision": view["state_revision"], "exported_at": now(), "scope": plan.get("scope", []), "files": files,
+        "required_files": sorted(required_files(plan, view)),
     }
     if skill_files:
         meta["skills"] = skill_files

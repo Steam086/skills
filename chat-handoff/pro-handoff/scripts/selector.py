@@ -9,7 +9,7 @@ from snapshot import path_key
 
 SECTIONS = ("modules", "dependencies", "history", "progress", "validation",
             "questions", "deliverables", "unknowns", "next_actions")
-REQUIRED = ("goal", "overview", "files", "prompt", *SECTIONS)
+REQUIRED = ("goal", "overview", "files", "required_context", "prompt", *SECTIONS)
 PRIORITY = {"critical": 0, "supporting": 1, "optional": 2}
 
 
@@ -53,8 +53,31 @@ def validate_plan(plan):
         if not isinstance(entry["priority"], str) or entry["priority"] not in PRIORITY:
             raise HandoffError(f"Invalid priority for {path}")
         safe_text(require_text(entry["reason"], "selection reason", 2000), "selection reason")
+    validate_required_context(plan["required_context"])
     validate_skill_plan(plan.get("skills", []))
     return plan
+
+
+def validate_required_context(entries):
+    if not isinstance(entries, list) or len(entries) > 100:
+        raise HandoffError("required_context must be an array of up to 100 requirements")
+    for entry in entries:
+        fields(entry, ("question", "required_files", "reason"), name="required context")
+        for key in ("question", "reason"):
+            safe_text(require_text(entry[key], f"required context {key}"), key)
+        paths = text_list(entry["required_files"], "required context files")
+        if not paths or len(paths) != len(set(paths)):
+            raise HandoffError("Each required context entry needs nonempty, unique required_files")
+        for path in paths:
+            safe_path(path)
+
+
+def required_plan_files(plan):
+    """Independent requirements cannot be bypassed by lowering a file's priority."""
+    paths = {row["path"] for row in plan["files"] if row["priority"] == "critical"}
+    for entry in plan["required_context"]:
+        paths.update(entry["required_files"])
+    return paths
 
 
 def validate_skill_plan(entries):

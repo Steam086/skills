@@ -15,6 +15,13 @@ Write a JSON object with these keys. Values in the array fields are strings unle
   "scope": ["src/worker", "tests"],
   "modules": ["src/worker/run.py leases jobs and publishes completion receipts"],
   "dependencies": ["src/queue/lease.py defines lease ownership and retry behavior"],
+  "required_context": [
+    {
+      "question": "Can retrying after a crash process the same job twice?",
+      "required_files": ["src/worker/run.py", "src/queue/lease.py", "tests/test_retry.py"],
+      "reason": "The worker, lease contract and regression establish the crash window and retry behavior"
+    }
+  ],
   "history": ["Decision receipt-after-write preserved result durability. Review crash recovery before revisiting it."],
   "progress": ["Added a failing regression for a crash between result write and receipt creation."],
   "validation": ["python -m unittest tests.test_retry produces two receipts in test_crash_recovery."],
@@ -34,6 +41,16 @@ Write a JSON object with these keys. Values in the array fields are strings unle
 The `prompt` is the task-specific analysis brief. Give Pro concrete hypotheses, evidence paths, constraints, tradeoffs, and an answer shape. For a delta mention what changed and what needs reconsideration. For recovery name the most important prior conclusion to validate. The engine adds package identifiers, reading instructions, verified progress, gaps, and response requirements.
 
 Use an optional `state_review` object with the review format below when planning surfaces newly verified facts, decisions already accepted by the user, or decisions explicitly superseded. The engine validates and commits these edits with the export. Cite hashes from the current working tree. Place design hypotheses and unconfirmed decisions in the history, questions, or task brief with their uncertainty.
+
+### Completeness gate and escalation
+
+`required_context` is required in every new plan, including sync and recovery. Each entry has `question`, nonempty unique `required_files` (project-relative paths), and `reason`. This list is independent of `files`: omitting or lowering the priority of a necessary dependency does not satisfy it. Only use an empty array when the task genuinely needs no current source dependencies, such as recording deletions. Regenerate old plans instead of mechanically adding an empty array.
+
+Before preview, independently walk the task from its entry points through implementation, interfaces, configuration, related tests and relevant decisions. Check that every necessary file is both declared and selected. Dependencies supplied by the standard library or external packages usually need their contract, version and configuration, not their entire installation. The engine checks declared coverage; it cannot discover every semantic dependency or recover inaccessible conversation history. A prerequisite with no known safe file must be resolved with the user rather than hidden in `unknowns` while claiming the task is answerable.
+
+Preview reports `publishable` and `blocking_gaps`, with the path, exclusion reason and `required_by` questions or local knowledge IDs. Publication fails before creating export artifacts when a critical selection, required-context file, or evidence path backing a current verified fact or accepted decision is missing from the target snapshot. Unchanged required evidence can come from the confirmed delta base; full and recovery exports must carry it themselves. Stale citations remain explicitly marked for revalidation; including a current file does not validate an earlier claim or restore historical bytes. Superseded decisions and pending Pro advice do not automatically force their historical files into the current source snapshot. If their evidence is necessary for this task, explicitly select it or stop for a safe evidence/scope decision.
+
+Continue safe local discovery and selection when it can resolve a blocker. Otherwise pause and ask the user: identify the missing file or context, explain its necessity and effect on the requested analysis, and request the minimum safe evidence or an explicit scope decision. Do not loop on an unchanged blocked command, invent placeholders, demote necessary files, remove citations, or weaken the coverage declaration to make publication succeed. A genuine user-approved task change needs a new plan and preview. Neither `--yes` nor `--approve` bypasses completeness or security. Nonessential supporting and optional omissions remain warnings; explain their impact. A blocked attempt publishes no ZIP or external Prompt and does not commit the proposed state review, export registry or delivery state.
 
 Project source selection respects Git ignores. The engine checks portable paths, link containment, UTF-8 text, credentials, per-file limits, and file and ZIP budgets. Check `coverage_gaps` for excluded critical or supporting files. Keep credentials, private data, and personal paths out of narrative text and avoid copying imported instructions into the task brief. Pattern detection is heuristic, so review the planned share scope for project-specific sensitivity. Redact sensitive details from useful findings while preserving verifiable paths and symbols.
 

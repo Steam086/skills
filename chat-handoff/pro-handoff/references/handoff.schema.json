@@ -17,6 +17,7 @@
     "exported_at": {"type": "string", "format": "date-time"},
     "scope": {"type": "array", "items": {"type": "string"}},
     "files": {"$ref": "#/$defs/manifest"},
+    "required_files": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
     "skills": {"$ref": "#/$defs/manifest"}
   },
   "allOf": [
