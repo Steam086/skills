@@ -85,7 +85,10 @@ def validate_skill_plan(entries):
         raise HandoffError("skills must be an array")
     names = set()
     for entry in entries:
-        fields(entry, ("name", "path", "reason"), ("references",), name="selected skill")
+        fields(entry, ("name", "path", "reason"), ("references", "required", "required_references"),
+               name="selected skill")
+        if type(entry.get("required", False)) is not bool:
+            raise HandoffError("Skill required flag must be a boolean")
         name = require_text(entry["name"], "skill name", 80)
         if not LABEL.fullmatch(name) or not display_path(name) or path_key(name) in names:
             raise HandoffError("Skill names must be unique and portable")
@@ -95,11 +98,12 @@ def validate_skill_plan(entries):
             raise HandoffError("Skill path must be an absolute path to SKILL.md")
         safe_text(require_text(entry["reason"], "skill selection reason", 2000), "skill selection reason")
         seen = {path_key("SKILL.md")}
-        for path in text_list(entry.get("references", []), "skill references"):
-            safe_path(f"skills/{name}/{path}")
-            if path_key(path) in seen:
-                raise HandoffError(f"Duplicate reference for skill {name}")
-            seen.add(path_key(path))
+        for key in ("required_references", "references"):
+            for path in text_list(entry.get(key, []), key):
+                safe_path(f"skills/{name}/{path}")
+                if path_key(path) in seen:
+                    raise HandoffError(f"Duplicate reference for skill {name}")
+                seen.add(path_key(path))
 
 
 def select(root, scan, plan, limits):
@@ -144,41 +148,54 @@ def select(root, scan, plan, limits):
 
 
 def select_skills(plan, limits, source):
-    content, selected, exclusions = {}, [], []
+    content, exclusions, folders = {}, [], {}
     remaining = limits.max_zip_bytes - sum(map(len, source.values()))
-    for entry in plan.get("skills", []):
+    entries = plan.get("skills", [])
+    groups = {entry["name"]: [] for entry in entries}
+
+    def capture(entry, path, required):
+        nonlocal remaining
         name = entry["name"]
-        included = []
-        for path in ("SKILL.md", *entry.get("references", [])):
-            relative = f"{name}/{path}"
-            reason = policy(relative)
-            if not reason and safe_content(relative.encode()):
-                reason = "sensitive path content"
-            if not reason and len(source) + len(content) >= limits.max_files:
-                reason = "file-count budget exceeded"
-            if not reason:
-                try:
-                    if path == "SKILL.md":
-                        # A skill may be installed via a directory link. Anchor all reads in its resolved root.
-                        folder = Path(entry["path"]).parent.resolve(strict=True)
-                    data = read_bytes(folder, path, limits.max_file_bytes)
-                except (OSError, HandoffError, RuntimeError) as error:
-                    reason = unavailable(error)
-                else:
-                    reason = safe_content(data)
-                    if not reason and len(data) > remaining:
-                        reason = "total file byte budget exceeded"
-            if reason:
-                exclusions.append({"name": name, "path": display_path(relative) or "[restricted path]",
-                                   "reason": reason})
+        relative = f"{name}/{path}"
+        reason = policy(relative)
+        if not reason and safe_content(relative.encode()):
+            reason = "sensitive path content"
+        if not reason and len(source) + len(content) >= limits.max_files:
+            reason = "file-count budget exceeded"
+        if not reason:
+            try:
                 if path == "SKILL.md":
-                    break
+                    # An installed skill may be a directory link; anchor reads in its resolved root.
+                    folders[name] = Path(entry["path"]).parent.resolve(strict=True)
+                data = read_bytes(folders[name], path, limits.max_file_bytes)
+            except (OSError, HandoffError, RuntimeError) as error:
+                reason = unavailable(error)
+            else:
+                reason = safe_content(data)
+                if not reason and len(data) > remaining:
+                    reason = "total file byte budget exceeded"
+        if reason:
+            exclusions.append({"name": name, "path": f"skills/{relative}" if display_path(relative) else
+                               "[restricted path]", "reason": reason, "required": required})
+            return False
+        content[relative] = data
+        groups[name].append(f"skills/{relative}")
+        remaining -= len(data)
+        return True
+
+    for required in (True, False):
+        for entry in entries:
+            references = entry.get("required_references", [])
+            required_entry = entry.get("required", False) or bool(references)
+            name = entry["name"]
+            if required == required_entry and not capture(entry, "SKILL.md", required):
                 continue
-            content[relative] = data
-            included.append(f"skills/{relative}")
-            remaining -= len(data)
-        if included:
-            selected.append({"name": name, "reason": entry["reason"], "paths": included})
+            if not groups[name]:
+                continue
+            for path in references if required else entry.get("references", []):
+                capture(entry, path, required)
+    selected = [{"name": entry["name"], "reason": entry["reason"], "paths": groups[entry["name"]]}
+                for entry in entries if groups[entry["name"]]]
     return content, selected, exclusions
 
 

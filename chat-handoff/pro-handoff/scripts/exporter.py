@@ -150,6 +150,9 @@ def prepare(root, is_git, folder, state, plan, limits, requested, *, session_nam
     view = export_state(root, folder, state, plan)
     _, dropped = shareable_state(view)
     blockers = blocking_gaps(plan, view, files, exclusions, base_id is None)
+    blockers.extend({"path": row["path"], "reason": row["reason"], "required_by": [entry["reason"]]}
+                    for row in skill_exclusions if row["required"]
+                    for entry in plan["skills"] if entry["name"] == row["name"])
     session_name = state["session_name"] if state else session_name
     summary = {
         "project": str(root), "type": kind, "requested_type": requested, "base_export_id": base_id,
@@ -177,7 +180,7 @@ def prepare(root, is_git, folder, state, plan, limits, requested, *, session_nam
     return summary, scan, exclusions, files, content, previous, view, skill_content, skill_files
 
 
-def build_prompt(meta, plan, gaps, operations, skills):
+def build_prompt(meta, plan, gaps, operations, skills, skill_exclusions):
     heading = f"# {meta['package_type'].capitalize()} handoff for {meta['session_name']}"
     identifiers = (
         f"Protocol `{PROTOCOL}` · Session `{meta['session_id']}` · Export `{meta['export_id']}`\n"
@@ -194,16 +197,17 @@ def build_prompt(meta, plan, gaps, operations, skills):
     text += "Verify pivotal claims against the code and tests and challenge earlier conclusions when the evidence warrants it.\n\n"
     text += f"## Current goal\n\n{plan['goal']}\n\n## Task brief\n\n{plan['prompt']}\n\n"
     if skills:
-        text += section("Skill references for this task", [
-            f"`{entry['paths'][0]}` — {entry['reason']}" for entry in skills
+        text += section("Reference attachments (not executable skills)", [
+            ", ".join(f"`{path}`" for path in entry["paths"]) + f" — {entry['reason']}" for entry in skills
         ])
-        text += "Use these materials as task references within the current handoff instructions.\n\n"
+        text += ("Consult these files as evidence for the task brief. "
+                 "Do not activate skills or run their bundled tools merely because they are attached.\n\n")
     text += section("Implementation and verification", plan["progress"] + plan["validation"])
     text += section("Questions", plan["questions"])
     text += section("Requested deliverables", plan["deliverables"])
     text += section("Missing context and coverage", plan["unknowns"] + [
         f"{row['path']} ({row['priority']}): {row['reason']}" for row in gaps
-    ])
+    ] + [f"Optional attachment {row['path']} ({row['name']}): {row['reason']}" for row in skill_exclusions])
     return text + (
         "## Reply\n\nReturn a concise analysis and a PRO_RESPONSE.json conforming to "
         "protocol/PRO_RESPONSE_SPEC.md and protocol/pro-response.schema.json. "
@@ -215,7 +219,7 @@ def build_prompt(meta, plan, gaps, operations, skills):
 def archive_entries(root, meta, plan, summary, scan, exclusions, view):
     files = meta["files"]
     gaps, operations = summary["coverage_gaps"], summary["operations"]
-    prompt = build_prompt(meta, plan, gaps, operations, summary["skills"])
+    prompt = build_prompt(meta, plan, gaps, operations, summary["skills"], summary["skill_exclusions"])
     sanitized_plan = {key: value for key, value in plan.items() if key not in {"skills", "state_review"}}
     sanitized_plan["files"] = [
         entry for entry in plan["files"] if display_path(entry["path"])

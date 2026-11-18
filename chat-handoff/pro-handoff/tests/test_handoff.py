@@ -558,6 +558,42 @@ class HandoffTest(unittest.TestCase):
         self.assertIn("above the", self.cmd("export", "--plan", "-", "--yes", "--max-zip-bytes", "1024",
                                            data=self.plan, ok=False))
 
+    def test_skill_guidance_is_inlined_without_raw_attachments(self):
+        guidance = "Required checks: compare both valid and unknown zones against the approved contract."
+        self.plan["prompt"] += "\n\n" + guidance
+        for kind in ("full", "delta", "recovery"):
+            with self.subTest(kind=kind):
+                exported = self.export(kind)
+                if kind == "full":
+                    self.cmd("mark-sent", exported["export_id"])
+                with ZipFile(exported["zip"]) as archive:
+                    self.assertEqual(archive.read("PROMPT_FOR_PRO.md"), Path(exported["prompt_file"]).read_bytes())
+                    self.assertIn(guidance, exported["prompt"])
+                    self.assertFalse(any(path.startswith("skills/") for path in archive.namelist()))
+
+    def test_missing_required_skill_reference_blocks_but_optional_one_is_reported(self):
+        folder = Path(self.temp.name, "validation-skill")
+        folder.mkdir()
+        instructions = folder / "SKILL.md"
+        instructions.write_text("# Validation reference\n", encoding="utf-8")
+        plan = deepcopy(self.plan)
+        plan["skills"] = [{"name": "validation", "path": str(instructions), "reason": "Check the contract",
+                           "required_references": ["contract.md"], "references": ["background.md"]}]
+        opts = ("--plan", "-")
+        preview = self.cmd("preview", *opts, data=plan)
+        self.assertFalse(preview["publishable"])
+        self.assertEqual([row["path"] for row in preview["blocking_gaps"]], ["skills/validation/contract.md"])
+        self.assertIn("Handoff blocked", self.cmd("export", *opts, "--yes", data=plan, ok=False))
+        instructions.unlink()
+        preview = self.cmd("preview", *opts, data=plan)
+        self.assertEqual([row["path"] for row in preview["blocking_gaps"]], ["skills/validation/SKILL.md"])
+        instructions.write_text("# Validation reference\n", encoding="utf-8")
+        (folder / "contract.md").write_text("# Carrier contract\n", encoding="utf-8")
+        exported = self.export(plan=plan)
+        self.assertIn("`skills/validation/contract.md`", exported["prompt"])
+        self.assertIn("Optional attachment skills/validation/background.md", exported["prompt"])
+        self.assertNotIn(str(folder), exported["prompt"])
+
     def test_skill_attachments_are_explicit_scoped_and_bound_to_preview(self):
         skill = Path(self.temp.name).resolve() / "local-skills" / "dispatch"
         references = skill / "references"
