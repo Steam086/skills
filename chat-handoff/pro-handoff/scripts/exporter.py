@@ -2,14 +2,17 @@
 
 from collections import Counter
 from copy import deepcopy
+from dataclasses import dataclass
+from datetime import datetime
 from io import BytesIO
-from zipfile import ZIP_DEFLATED, ZipFile
+from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
-from common import (PROTOCOL, SKILL, HandoffError, atomic_write, canonical, digest, json_bytes,
-                    new_id, now)
+from common import (HASH, ID, MAX_UNCOMPRESSED_BYTES, PROTOCOL, SKILL, HandoffError, atomic_write,
+                    canonical, digest, json_bytes, new_id, now)
 from importer import refresh_facts, review, saved_manifest
 from scanner import discover, read_bytes, safe_content
-from selector import display_path, required_plan_files, scope_label, select, select_skills
+from selector import display_path, required_plan_files, scope_label, select
 from session_store import CATEGORIES, render_state
 from snapshot import changes, manifest, payload_paths, snapshot_id, validate_manifest
 from validator import verify
@@ -19,6 +22,19 @@ MODE_GUIDANCE = {
     "delta": "Update the original conversation using this exact base and the operation list. Focus on the new work and current questions. If the base is unavailable, ask for a recovery package.",
     "recovery": "Start a new conversation using the current snapshot, current state, decision ledger and evidence archive. Recheck the current code and carry forward the still-relevant decisions.",
 }
+
+
+@dataclass(frozen=True)
+class PreparedExport:
+    summary: dict
+    meta: dict
+    git_head: str | None
+    source: dict
+    base: dict | None
+    view: dict
+    references: dict
+    archive: BytesIO | None
+    prompt: str | None
 
 
 def bullets(items):
@@ -113,7 +129,7 @@ def require_publishable(summary):
         if len(gaps) > 100:
             details += f"\n- {len(gaps) - 100} more blockers; inspect the preview."
         raise HandoffError(
-            "Handoff blocked: necessary files are missing. No ZIP or Prompt was published.\n"
+            "Handoff blocked: coverage or budget checks failed. No ZIP or Prompt was published.\n"
             + details + "\nSafely complete the selection and re-preview. If this cannot be resolved locally, "
             "pause the handoff and ask the user for the missing evidence or a task-scope decision. "
             "Do not downgrade necessary files or remove citations to bypass this check. "
@@ -121,14 +137,32 @@ def require_publishable(summary):
         )
 
 
-def prepare(root, is_git, folder, state, plan, limits, requested, *, session_name="default"):
+def export_identity(state, approval):
+    if not approval:
+        return (state["session_id"] if state else new_id(), new_id(), now())
+    # The ticket carries the IDs and time used to compress the exact previewed package.
+    # Its final digest is rechecked against the actual plan, state and staged bytes.
+    try:
+        sid, eid, stamp, checksum = approval.split(".")
+        if (ID.fullmatch(sid) and ID.fullmatch(eid) and HASH.fullmatch(checksum)
+                and datetime.fromisoformat(stamp).isoformat(timespec="seconds") == stamp
+                and stamp.endswith("+00:00") and (state is None or state["session_id"] == sid)):
+            return sid, eid, stamp
+    except ValueError:
+        pass
+    raise HandoffError("Preview changed. Generate a new preview and confirm its current token.")
+
+
+def prepare(root, is_git, folder, state, plan, limits, requested, *, session_name="default", approval=None):
     if min(limits.max_zip_bytes, limits.max_file_bytes, limits.max_files) < 1:
         raise HandoffError("Export budgets must be positive")
+    sid, eid, stamp = export_identity(state, approval)
     scan = discover(root, is_git)
-    content, exclusions, gaps = select(root, scan, plan, limits)
+    view = export_state(root, folder, state, plan)
+    necessary = required_files(plan, view)
+    content, exclusions, gaps, skill_content, skills, skill_exclusions = select(root, scan, plan, limits, necessary)
     files = manifest(content)
     validate_manifest(files)
-    skill_content, skills, skill_exclusions = select_skills(plan, limits, content)
     skill_files = manifest(skill_content)
     validate_manifest(skill_files)
     base_id = state["confirmed_base_export_id"] if requested == "delta" and state else None
@@ -145,39 +179,75 @@ def prepare(root, is_git, folder, state, plan, limits, requested, *, session_nam
     elif kind == "delta":
         kind = "full"
     path_set = set(files) if operations is None else payload_paths(operations)
+    latest = state["latest_export_id"] if state else None
+    last_files = {}
+    if latest:
+        try:
+            last_files = previous if latest == base_id else saved_manifest(folder, state["exports"][latest]["snapshot_id"])
+        except (OSError, HandoffError):
+            pass  # Cannot establish unchanged sharing scope; require a preview for selected paths.
+    new_paths = sorted(files.keys() - last_files.keys()) if latest else []
     counts = Counter(exclusions.values())
     public_gaps = [{**gap, "path": display_path(gap["path"]) or "[restricted path]"} for gap in gaps]
-    view = export_state(root, folder, state, plan)
-    _, dropped = shareable_state(view)
     blockers = blocking_gaps(plan, view, files, exclusions, base_id is None)
     blockers.extend({"path": row["path"], "reason": row["reason"], "required_by": [entry["reason"]]}
                     for row in skill_exclusions if row["required"]
                     for entry in plan["skills"] if entry["name"] == row["name"])
     session_name = state["session_name"] if state else session_name
+    view["session_name"] = session_name
+    view["state_revision"] = (state["state_revision"] if state else 1) + 1
+    shareable, dropped = shareable_state(view)
+    meta = {
+        "protocol_version": PROTOCOL, "session_id": sid, "session_name": session_name,
+        "export_id": eid, "package_type": kind, "base_export_id": base_id,
+        "base_snapshot_id": snapshot_id(previous) if previous is not None else None, "snapshot_id": snapshot_id(files),
+        "state_revision": view["state_revision"], "exported_at": stamp, "scope": plan.get("scope", []), "files": files,
+        "required_files": sorted(necessary),
+    }
+    if skill_files:
+        meta["skills"] = skill_files
     summary = {
         "project": str(root), "type": kind, "requested_type": requested, "base_export_id": base_id,
-        "session_name": session_name,
-        "preview_required": bool(skills) or not state or not state["exports"], "source_file_count": len(path_set),
+        "session_name": session_name, "new_source_paths": new_paths,
+        "preview_required": bool(skills or new_paths) or not latest, "source_file_count": len(path_set),
         "snapshot_file_count": len(files), "source_bytes": sum(files[path]["size"] for path in path_set),
         "selected": [{"path": entry["path"], "reason": entry["reason"], "priority": entry["priority"],
                       "included_in_zip": entry["path"] in path_set}
                      for entry in plan["files"] if entry["path"] in files],
         "exclusion_counts": dict(counts), "coverage_gaps": public_gaps,
-        "publishable": not blockers, "blocking_gaps": blockers,
+        "blocking_gaps": blockers, "zip_bytes": None,
         "skills": skills, "skill_exclusions": skill_exclusions,
         "operations": operations, "restricted_state_items": dropped,
     }
-    token = digest(canonical({
-        "root": str(root), "state_id": state["session_id"] if state else None,
-        "session_name": session_name, "requested": requested, "base_export_id": base_id,
-        "base_snapshot_id": snapshot_id(previous) if previous is not None else None,
-        "revision": state["state_revision"] if state else 0, "plan": plan, "files": files,
-        "head": scan["git_head"], "status": scan["status"], "operations": operations,
-        "exclusions": exclusions, "kind": kind, "view": view["knowledge"], "limits": vars(limits),
-        "skill_files": skill_files, "skill_exclusions": skill_exclusions,
-    }))
-    summary["preview_token"] = token
-    return summary, scan, exclusions, files, content, previous, view, skill_content, skill_files
+    buffer, prompt = None, None
+    if not blockers:
+        entries, prompt = archive_entries(root, meta, plan, summary, scan, exclusions, shareable)
+        payload = {**entries, **{"source/" + path: content[path] for path in sorted(path_set)},
+                   **{"skills/" + path: data for path, data in sorted(skill_content.items())}}
+        expanded = sum(map(len, payload.values()))
+        if expanded > MAX_UNCOMPRESSED_BYTES:
+            blockers.append({"path": None, "reason": f"ZIP is {expanded} bytes uncompressed, above the "
+                             f"{MAX_UNCOMPRESSED_BYTES} byte limit", "required_by": ["ZIP budget"]})
+        else:
+            buffer = compress(payload)
+            summary["zip_bytes"] = buffer.getbuffer().nbytes
+            if summary["zip_bytes"] > limits.max_zip_bytes:
+                blockers.append({"path": None, "reason": f"ZIP is {summary['zip_bytes']} bytes, above the "
+                                 f"{limits.max_zip_bytes} byte limit", "required_by": ["ZIP budget"]})
+    summary["publishable"] = not blockers
+    checksum = digest(canonical({"summary": summary, "plan": plan, "limits": vars(limits), "meta": meta,
+                                 "archive": digest(buffer.getbuffer()) if buffer is not None else None}))
+    summary["preview_token"] = ".".join((sid, eid, stamp, checksum))
+    return PreparedExport(summary, meta, scan["git_head"], content, previous, view, skill_content, buffer, prompt)
+
+
+def compress(payload):
+    buffer = BytesIO()
+    with ZipFile(buffer, "w") as archive:
+        for name, data in payload.items():
+            # Fixed member timestamps let approval reuse the exact ZIP byte count and digest.
+            archive.writestr(ZipInfo(name), data, compress_type=ZIP_DEFLATED, compresslevel=6)
+    return buffer
 
 
 def build_prompt(meta, plan, gaps, operations, skills, skill_exclusions):
@@ -226,24 +296,26 @@ def archive_entries(root, meta, plan, summary, scan, exclusions, view):
     ]
     if summary["skills"]:
         sanitized_plan["skills"] = summary["skills"]
-    safe_exclusions = {path: reason for path, reason in exclusions.items() if display_path(path)}
-    filtered = len(exclusions) - len(safe_exclusions)
-    # Keep out-of-scope monorepo paths from crowding out the actual task.
-    sample = dict(sorted(safe_exclusions.items(), key=lambda row: (
-        row[1] == "outside semantic selection", row[0]
-    ))[:1000])
-    tree = {}
-    for path in sorted(scan["files"]):
-        if display_path(path):
-            label = scope_label(path, meta["scope"])
-            tree[label] = tree.get(label, 0) + 1
-    tree_text = section("Discovered modules and candidate file counts", [
-        f"`{name}` ({count})" for name, count in tree.items()
+    # Inventory and unrelated worktree changes are local. Only disclose explicitly planned
+    # exclusions and status paths the recipient already knows from this export or its base.
+    safe_exclusions = {row["path"]: exclusions[row["path"]] for row in sanitized_plan["files"]
+                       if row["path"] in exclusions}
+    sample = dict(sorted(safe_exclusions.items())[:1000])
+    tree = Counter(scope_label(path, meta["scope"]) for path in files)
+    tree_text = section("Selected modules and file counts", [
+        f"`{name}` ({count})" for name, count in sorted(tree.items())
     ][:250]) + section("Selected paths", [f"`{path}`" for path in files])
+    known_paths = set(files)
+    if operations is not None:
+        known_paths.update(operations["deleted"] + operations["omitted"])
+        known_paths.update(row["from"] for row in operations["renamed"])
     status = []
     for code, path, old in scan["status"]:
-        if display_path(path) and (not old or display_path(old)):
-            status.append(f"{code} {old + ' -> ' if old else ''}{path}")
+        share_path = path in known_paths and display_path(path)
+        share_old = old in known_paths and display_path(old)
+        if share_path or share_old:
+            endpoints = f"{share_old or '[outside handoff]'} -> " if old else ""
+            status.append(f"{code} {endpoints}{share_path or '[outside handoff]'}")
     coverage = section("Coverage gaps", [f"{row['path']}: {row['reason']}" for row in gaps])
     current = render_state(view) + "\n" + section("Prior context", plan["history"])
     current += section("Unavailable context", plan["unknowns"])
@@ -270,7 +342,7 @@ def archive_entries(root, meta, plan, summary, scan, exclusions, view):
             + ("\n".join(status[:1000]) or "No shareable working-tree status entries.") + "\n"
         ).encode(),
         "metadata/EXCLUSIONS.json": json_bytes({
-            "counts": summary["exclusion_counts"], "redacted_path_count": filtered,
+            "counts": summary["exclusion_counts"], "redacted_path_count": len(exclusions) - len(safe_exclusions),
             "paths": sample, "additional_path_count": len(safe_exclusions) - len(sample),
             "coverage_gaps": gaps,
             "restricted_state_items": summary["restricted_state_items"],
@@ -295,43 +367,26 @@ def archive_entries(root, meta, plan, summary, scan, exclusions, view):
 
 
 def publish(store, folder, state, plan, limits, prepared):
-    summary, scan, exclusions, files, content, previous, view, skill_content, skill_files = prepared
+    summary, meta, view = prepared.summary, prepared.meta, prepared.view
     require_publishable(summary)
-    export_id = new_id()
-    ident = snapshot_id(files)
-    view["session_name"] = state["session_name"]
-    view["state_revision"] = state["state_revision"] + 1
-    meta = {
-        "protocol_version": PROTOCOL, "session_id": state["session_id"], "session_name": state["session_name"],
-        "export_id": export_id, "package_type": summary["type"], "base_export_id": summary["base_export_id"],
-        "base_snapshot_id": snapshot_id(previous) if previous is not None else None, "snapshot_id": ident,
-        "state_revision": view["state_revision"], "exported_at": now(), "scope": plan.get("scope", []), "files": files,
-        "required_files": sorted(required_files(plan, view)),
-    }
-    if skill_files:
-        meta["skills"] = skill_files
-    shareable, _ = shareable_state(view)
-    entries, prompt = archive_entries(store.root, meta, plan, summary, scan, exclusions, shareable)
-    path_set = set(files) if summary["operations"] is None else payload_paths(summary["operations"])
-    buffer = BytesIO()
-    with ZipFile(buffer, "w", ZIP_DEFLATED, compresslevel=6) as zip_file:
-        for name, data in entries.items():
-            zip_file.writestr(name, data)
-        for path in sorted(path_set):
-            zip_file.writestr("source/" + path, content[path])
-        for path, data in sorted(skill_content.items()):
-            zip_file.writestr("skills/" + path, data)
-    size = buffer.getbuffer().nbytes
-    if size > limits.max_zip_bytes:
-        raise HandoffError(f"ZIP is {size} bytes, above the {limits.max_zip_bytes} byte limit. "
-                           "Reduce the selection or increase the budget.")
-    verify(buffer, base=previous, base_export_id=meta["base_export_id"])
+    files, export_id, ident = meta["files"], meta["export_id"], meta["snapshot_id"]
+    if (state["session_id"] != meta["session_id"] or state["session_name"] != meta["session_name"]
+            or state["state_revision"] + 1 != meta["state_revision"] or export_id in state["exports"]):
+        raise HandoffError("Session or export identity changed. Re-run the export.")
+    verify(prepared.archive, base=prepared.base, base_export_id=meta["base_export_id"])
     for path in files:
-        if read_bytes(store.root, path, limits.max_file_bytes) != content[path]:
+        if read_bytes(store.root, path, limits.max_file_bytes) != prepared.source[path]:
             raise HandoffError(f"File changed during packaging: {path}. Re-run the export.")
-    if select_skills(plan, limits, content) != (skill_content, summary["skills"], summary["skill_exclusions"]):
-        raise HandoffError("Skill selection changed during packaging. Re-run the export.")
-    if previous is not None and changes(store.root, previous, files) != summary["operations"]:
+    skill_roots = {entry["name"]: Path(entry["path"]).parent for entry in plan.get("skills", [])}
+    for relative, data in prepared.references.items():
+        name, path = relative.split("/", 1)
+        try:
+            current_bytes = read_bytes(skill_roots[name].resolve(strict=True), path, limits.max_file_bytes)
+        except (OSError, HandoffError, RuntimeError) as error:
+            raise HandoffError("Skill selection changed during packaging. Re-run the export.") from error
+        if current_bytes != data:
+            raise HandoffError("Skill selection changed during packaging. Re-run the export.")
+    if prepared.base is not None and changes(store.root, prepared.base, files) != summary["operations"]:
         raise HandoffError("A removed path changed during packaging. Re-run the export.")
 
     current = export_state(store.root, folder, state, plan)
@@ -341,15 +396,15 @@ def publish(store, folder, state, plan, limits, prepared):
     prompt_path = folder / "prompts" / f"{export_id}.md"
     atomic_write(folder / "snapshots" / f"{ident}.json", json_bytes(files))
     atomic_write(folder / "plans" / f"{export_id}.json", json_bytes(plan))
-    atomic_write(prompt_path, prompt.encode())
-    archive = buffer.getvalue()
+    atomic_write(prompt_path, prepared.prompt.encode())
+    archive = prepared.archive.getvalue()
     atomic_write(zip_path, archive)
     state["knowledge"] = view["knowledge"]
-    state.update(goal=plan["goal"], git_head=scan["git_head"], snapshot_id=ident, latest_export_id=export_id)
+    state.update(goal=plan["goal"], git_head=prepared.git_head, snapshot_id=ident, latest_export_id=export_id)
     state["exports"][export_id] = {
         "type": meta["package_type"], "snapshot_id": ident, "base_export_id": meta["base_export_id"],
         "revision": meta["state_revision"], "delivery": {}, "sha256": digest(archive),
     }
     store.commit(folder, state, "export", {"export_id": export_id, "snapshot_id": ident, "type": meta["package_type"]})
     return {**summary, "preview_required": False, "export_id": export_id, "snapshot_id": ident,
-            "zip": str(zip_path), "zip_bytes": size, "prompt_file": str(prompt_path), "prompt": prompt}
+            "zip": str(zip_path), "prompt_file": str(prompt_path), "prompt": prepared.prompt}

@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from common import LABEL, HandoffError, fields, require_text, safe_path, text_list
+from common import LABEL, MAX_UNCOMPRESSED_BYTES, HandoffError, fields, require_text, safe_path, text_list
 from scanner import policy, read_bytes, safe_content, unavailable
 from snapshot import path_key
 
@@ -106,14 +106,32 @@ def validate_skill_plan(entries):
                 seen.add(path_key(path))
 
 
-def select(root, scan, plan, limits):
+class CaptureBudget:
+    def __init__(self, limits):
+        self.files = limits.max_files
+        self.bytes = MAX_UNCOMPRESSED_BYTES
+        self.per_file = min(limits.max_file_bytes, MAX_UNCOMPRESSED_BYTES)
+
+    def accept(self, data):
+        reason = safe_content(data)
+        if reason:
+            return reason
+        if len(data) > self.bytes:
+            return "uncompressed selection byte budget exceeded"
+        self.bytes -= len(data)
+        self.files -= 1
+        return None
+
+
+def select(root, scan, plan, limits, necessary):
+    budget = CaptureBudget(limits)
     inventory = scan["files"]
     exclusions = scan["exclusions"].copy()
     content, gaps, selected_keys = {}, [], set()
     for path in inventory:
         exclusions[path] = "outside semantic selection"
-    remaining = limits.max_zip_bytes
-    for entry in sorted(plan["files"], key=lambda row: PRIORITY[row["priority"]]):
+
+    def capture_source(entry):
         path, priority = entry["path"], entry["priority"]
         reason = policy(path)
         if not reason and safe_content(path.encode()):
@@ -122,81 +140,84 @@ def select(root, scan, plan, limits):
             reason = exclusions.get(path) or "not in project inventory (missing or ignored)"
         if not reason and path_key(path) in selected_keys:
             reason = "case-folded or Unicode path collision"
-        if not reason and len(content) >= limits.max_files:
+        if not reason and not budget.files:
             reason = "file-count budget exceeded"
         if not reason:
             try:
-                data = read_bytes(root, path, limits.max_file_bytes)
+                data = read_bytes(root, path, budget.per_file)
             except (OSError, HandoffError) as error:
                 reason = unavailable(error)
                 if reason != "single-file size budget exceeded":
                     raise HandoffError(f"Working tree changed or became unreadable at {path}; re-run discovery") from error
             else:
-                reason = safe_content(data)
-                if not reason and len(data) > remaining:
-                    reason = "total source byte budget exceeded"
+                reason = budget.accept(data)
         if reason:
             exclusions[path] = reason
             if priority != "optional":
                 gaps.append({"path": path, "priority": priority, "reason": reason})
-            continue
+            return
         content[path] = data
         selected_keys.add(path_key(path))
-        remaining -= len(data)
         exclusions.pop(path, None)
-    return content, exclusions, gaps
+
+    entries = sorted(plan["files"], key=lambda row: PRIORITY[row["priority"]])
+    skills = SkillSelection(plan, budget)
+    for required in (True, False):
+        for entry in entries:
+            if (entry["path"] in necessary) == required:
+                capture_source(entry)
+        skills.capture_phase(required)
+    return content, exclusions, gaps, skills.content, skills.selected(), skills.exclusions
 
 
-def select_skills(plan, limits, source):
-    content, exclusions, folders = {}, [], {}
-    remaining = limits.max_zip_bytes - sum(map(len, source.values()))
-    entries = plan.get("skills", [])
-    groups = {entry["name"]: [] for entry in entries}
+class SkillSelection:
+    def __init__(self, plan, budget):
+        self.content, self.exclusions, self.folders = {}, [], {}
+        self.budget = budget
+        self.entries = plan.get("skills", [])
+        self.groups = {entry["name"]: [] for entry in self.entries}
 
-    def capture(entry, path, required):
-        nonlocal remaining
+    def capture(self, entry, path, required):
         name = entry["name"]
         relative = f"{name}/{path}"
         reason = policy(relative)
         if not reason and safe_content(relative.encode()):
             reason = "sensitive path content"
-        if not reason and len(source) + len(content) >= limits.max_files:
+        if not reason and not self.budget.files:
             reason = "file-count budget exceeded"
         if not reason:
             try:
                 if path == "SKILL.md":
                     # An installed skill may be a directory link; anchor reads in its resolved root.
-                    folders[name] = Path(entry["path"]).parent.resolve(strict=True)
-                data = read_bytes(folders[name], path, limits.max_file_bytes)
+                    self.folders[name] = Path(entry["path"]).parent.resolve(strict=True)
+                data = read_bytes(self.folders[name], path, self.budget.per_file)
             except (OSError, HandoffError, RuntimeError) as error:
                 reason = unavailable(error)
             else:
-                reason = safe_content(data)
-                if not reason and len(data) > remaining:
-                    reason = "total file byte budget exceeded"
+                reason = self.budget.accept(data)
         if reason:
-            exclusions.append({"name": name, "path": f"skills/{relative}" if display_path(relative) else
-                               "[restricted path]", "reason": reason, "required": required})
+            self.exclusions.append({"name": name, "path": f"skills/{relative}" if display_path(relative) else
+                                    "[restricted path]", "reason": reason, "required": required})
             return False
-        content[relative] = data
-        groups[name].append(f"skills/{relative}")
-        remaining -= len(data)
+        self.content[relative] = data
+        self.groups[name].append(f"skills/{relative}")
         return True
 
-    for required in (True, False):
-        for entry in entries:
+    def capture_phase(self, required):
+        for entry in self.entries:
             references = entry.get("required_references", [])
             required_entry = entry.get("required", False) or bool(references)
             name = entry["name"]
-            if required == required_entry and not capture(entry, "SKILL.md", required):
+            if required == required_entry and not self.capture(entry, "SKILL.md", required):
                 continue
-            if not groups[name]:
+            if not self.groups[name]:
                 continue
             for path in references if required else entry.get("references", []):
-                capture(entry, path, required)
-    selected = [{"name": entry["name"], "reason": entry["reason"], "paths": groups[entry["name"]]}
-                for entry in entries if groups[entry["name"]]]
-    return content, selected, exclusions
+                self.capture(entry, path, required)
+
+    def selected(self):
+        return [{"name": entry["name"], "reason": entry["reason"], "paths": self.groups[entry["name"]]}
+                for entry in self.entries if self.groups[entry["name"]]]
 
 
 def display_path(path):

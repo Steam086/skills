@@ -133,7 +133,7 @@ class Store:
             raise HandoffError("Invalid session ID")
         return self.directory / "sessions" / session_id
 
-    def select(self, index, selector=None, *, create=False, goal=None):
+    def select(self, index, selector=None, *, create=False, goal=None, new_session_id=None):
         session_id = index["active"] if selector is None else (
             selector if selector in index["sessions"] else next(
                 (key for key, name in index["sessions"].items() if name == selector), None
@@ -154,8 +154,10 @@ class Store:
         name = selector or "default"
         if not LABEL.fullmatch(name) or ID.fullmatch(name):
             raise HandoffError("Use a session name of up to 80 letters, digits, underscores or hyphens")
-        session_id = new_id()
+        session_id = new_session_id or new_id()
         folder = self.directory_for(session_id)
+        if session_id in index["sessions"] or os.path.lexists(folder):
+            raise HandoffError("Session ID already exists. Generate a fresh preview or retry the operation.")
         for directory in (folder.parent, folder, *(folder / name for name in ARTIFACTS)):
             private_dir(directory)
         created = now()

@@ -11,6 +11,7 @@ import tempfile
 from uuid import uuid4
 
 PROTOCOL = "pro-handoff/1.0"
+MAX_UNCOMPRESSED_BYTES = 128 * 1024 * 1024
 SKILL = Path(__file__).resolve().parents[1]
 ID = re.compile(r"[0-9a-f]{32}")
 HASH = re.compile(r"[0-9a-f]{64}")

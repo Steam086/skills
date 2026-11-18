@@ -34,7 +34,9 @@ SECRET = re.compile(
     |\b(?:api[_-]?key|private[_-]?key|access[_-]?key|secret[_-]?key|client[_-]?secret|
         password|passwd|pwd|(?:auth|access|refresh|bearer|api)[_-]?token|authorization|secret|token)
         ["']?\s*[:=]\s*["'](?:bearer\s+)?[^\s"'\[\]{}<>]{4,}["']
-    |(?m:^\s*(?:[A-Z0-9]+_)*(?:PASSWORD|TOKEN|SECRET|API_KEY)\s*=\s*[^\s"'$\[\]{}<>]{4,}\s*$)
+    |(?m:^[ \t]*(?:[A-Z0-9]+_)*(?:PASSWORD|TOKEN|SECRET|API_KEY)[ \t]*=[ \t]*
+        (?![a-z_]\w*(?:\.[a-z_]\w*)*\([ \t]*\r?$)  # multiline code call, not a literal assignment
+        [^\s"'$\[\]{}<>]{4,}[ \t]*\r?$)
     """
 )
 LANGUAGES = {

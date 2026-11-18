@@ -4,7 +4,7 @@ Use UTF-8 JSON and POSIX-style project-relative file paths. The [handoff schema]
 
 ## Exports
 
-Each ZIP contains HANDOFF.json, START_HERE.md, PROMPT_FOR_PRO.md, context/, metadata/, protocol/, and the selected files under source/. HANDOFF.json binds the session, export, package type, scope, snapshot, and optional base. metadata/MANIFEST.json repeats the complete target snapshot's paths, byte counts and SHA-256 digests. The snapshot ID is the SHA-256 of the UTF-8 canonical JSON of this file mapping (keys sorted, no extra whitespace, ASCII escapes enabled). Full and recovery packages include all files in that manifest. A recovery package has no base and includes the current state, decision ledger and selected evidence history.
+Each ZIP contains HANDOFF.json, START_HERE.md, PROMPT_FOR_PRO.md, context/, metadata/, protocol/, and the selected files under source/. HANDOFF.json binds the session, export, package type, scope, snapshot, and optional base. metadata/MANIFEST.json repeats the complete target snapshot's paths, byte counts and SHA-256 digests. The snapshot ID is the SHA-256 of the UTF-8 canonical JSON of this file mapping (keys sorted, no extra whitespace, ASCII escapes enabled). Full and recovery packages include all files in that manifest. A recovery package has no base and includes the current state, decision ledger and selected evidence history. The project tree lists selected files only. Git status lists only paths already shared by the current export or its relevant delta operations; it masks unshared rename endpoints. Exclusions report aggregate counts and list only shareable paths explicitly selected in the plan.
 
 ### Necessary-file coverage
 

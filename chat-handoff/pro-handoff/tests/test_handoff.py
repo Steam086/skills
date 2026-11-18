@@ -8,6 +8,7 @@ from io import BytesIO
 import json
 import os
 from pathlib import Path
+import random
 import shutil
 import subprocess
 import sys
@@ -16,12 +17,15 @@ import unittest
 from unittest.mock import patch
 from zipfile import ZipFile
 
+# Construct the synthetic credential at runtime so this test source is safe to share.
+CREDENTIAL_FIXTURE = "api_" "key = 'not-for-upload'\n"
+
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 from common import HandoffError, PROTOCOL, json_bytes
 from exporter import prepare, publish
 from importer import parse_response
-from scanner import read_bytes
+from scanner import read_bytes, safe_content
 from selector import Limits
 from session_store import Store, write_record
 from snapshot import snapshot_id
@@ -349,7 +353,7 @@ class HandoffTest(unittest.TestCase):
             ("missing", (), None),
             ("file count", ("--max-files", "1"), "file-count budget exceeded"),
             ("file size", ("--max-file-bytes", "10"), "single-file size budget exceeded"),
-            ("total bytes", ("--max-zip-bytes", "10"), "total source byte budget exceeded"),
+            ("ZIP bytes", ("--max-zip-bytes", "10"), "above the 10 byte limit"),
             ("credential", (), "potential embedded credential"),
         ]
         for name, limits, reason in cases:
@@ -357,14 +361,14 @@ class HandoffTest(unittest.TestCase):
             if name == "missing":
                 (self.root / "parcel/route.py").unlink()
             elif name == "credential":
-                self.write("parcel/route.py", "api_key = 'not-for-upload'\n")
+                self.write("parcel/route.py", CREDENTIAL_FIXTURE)
             for kind in ("full", "delta", "recovery"):
                 with self.subTest(case=name, kind=kind):
                     options = ("--plan", "-", *limits)
                     preview = self.cmd("preview", "--type", kind, *options, data=self.plan)
                     self.assertFalse(preview["publishable"])
                     if reason:
-                        self.assertTrue(any(row["reason"] == reason for row in preview["blocking_gaps"]))
+                        self.assertTrue(any(reason in row["reason"] for row in preview["blocking_gaps"]))
                     command = ("recover",) if kind == "recovery" else ("export", "--type", kind)
                     for consent in (("--yes",), ("--approve", preview["preview_token"])):
                         error = self.cmd(*command, *options, *consent, data=self.plan, ok=False)
@@ -526,7 +530,7 @@ class HandoffTest(unittest.TestCase):
 
     def test_security_filters_and_coverage_budgets(self):
         self.write(".env", "PASSWORD=not-for-upload\n")
-        self.write("parcel/note", "api_key = 'not-for-upload'\n")
+        self.write("parcel/note", CREDENTIAL_FIXTURE)
         self.write("parcel/ignored.tmp", "temp")
         self.write("build/cache.txt", "cache")
         self.write("parcel/data", "x" * 1000)
@@ -557,6 +561,90 @@ class HandoffTest(unittest.TestCase):
             self.assertIn("Unsafe relative path", self.cmd("preview", "--plan", "-", data=bad, ok=False))
         self.assertIn("above the", self.cmd("export", "--plan", "-", "--yes", "--max-zip-bytes", "1024",
                                            data=self.plan, ok=False))
+
+    def test_export_metadata_does_not_share_unselected_inventory_or_rename_endpoints(self):
+        self.write("unrelated-app/old-roadmap.md", "Keep this content and name local.\n")
+        self.init_git()
+        self.git("mv", "unrelated-app/old-roadmap.md", "shared-review.md")
+        self.write("unrelated-app/not-for-review.md", "Unrelated app change.\n")
+        self.write("parcel/private-notes.md", "Unselected even within the declared scope.\n")
+        self.plan["files"].append({"path": "shared-review.md", "priority": "supporting",
+                                   "reason": "Explicitly selected cross-scope dependency"})
+        with ZipFile(self.export()["zip"]) as archive:
+            for path in archive.namelist():
+                self.assertNotIn(b"unrelated-app", archive.read(path))
+                self.assertNotIn(b"private-notes", archive.read(path))
+            self.assertIn("source/shared-review.md", archive.namelist())
+            self.assertIn(b"[outside handoff] -> shared-review.md", archive.read("metadata/GIT_STATUS.txt"))
+            exclusions = json.loads(archive.read("metadata/EXCLUSIONS.json"))
+            self.assertEqual(exclusions["counts"]["outside semantic selection"], 2)
+
+    def test_new_source_paths_need_confirmation_after_first_export(self):
+        full = self.export()
+        self.cmd("mark-sent", full["export_id"])
+        self.write("shared/addendum.md", "A cross-scope contract\n")
+        self.plan["files"].append({"path": "shared/addendum.md", "priority": "supporting",
+                                   "reason": "Defines the caller's contract"})
+        opts = ("--type", "delta", "--plan", "-")
+        self.assertIn("newly selected source paths", self.cmd("export", *opts, data=self.plan, ok=False))
+        preview = self.cmd("preview", *opts, data=self.plan)
+        self.assertTrue(preview["preview_required"])
+        self.assertEqual(preview["new_source_paths"], ["shared/addendum.md"])
+        delta = self.cmd("export", *opts, "--approve", preview["preview_token"], data=self.plan)
+        self.assertEqual(delta["operations"]["added"], ["shared/addendum.md"])
+
+    def test_required_evidence_gets_capture_budget_before_supporting_source(self):
+        self.plan["files"] = [{**row, "priority": "supporting"} for row in reversed(self.plan["files"])]
+        folder = Path(self.temp.name, "contract-skill")
+        folder.mkdir()
+        (folder / "SKILL.md").write_text("# Contract reference\n", encoding="utf-8")
+        self.plan["skills"] = [{"name": "contract", "path": str(folder / "SKILL.md"),
+                                "reason": "Auditing the contract itself", "required": True}]
+        preview = self.cmd("preview", "--plan", "-", "--max-files", "3", data=self.plan)
+        self.assertTrue(preview["publishable"])
+        self.assertEqual({row["path"] for row in preview["selected"]}, {"parcel/app.py", "parcel/route.py"})
+        self.assertEqual(preview["skills"][0]["paths"], ["skills/contract/SKILL.md"])
+
+    def test_preview_budgets_the_exact_compressed_package_including_metadata(self):
+        self.write("parcel/route.py", "# Repeated route evidence.\n" * 2000)
+        options = ("--plan", "-", "--max-zip-bytes", "16000")
+        preview = self.cmd("preview", *options, data=self.plan)
+        self.assertTrue(preview["publishable"])
+        self.assertGreater(preview["source_bytes"], 16000)
+        exported = self.cmd("export", *options, "--approve", preview["preview_token"], data=self.plan)
+        self.assertEqual(preview["zip_bytes"], Path(exported["zip"]).stat().st_size)
+        self.assertEqual(preview["zip_bytes"], exported["zip_bytes"])
+        tight = ("--session", "tight", "--plan", "-", "--max-zip-bytes", "1024")
+        blocked = self.cmd("preview", *tight, data=self.plan)
+        self.assertFalse(blocked["publishable"])
+        self.assertGreater(blocked["zip_bytes"], 1024)
+        self.assertEqual(blocked["blocking_gaps"][0]["required_by"], ["ZIP budget"])
+        self.assertIn("above the", self.cmd("export", *tight, "--approve", blocked["preview_token"],
+                                           data=self.plan, ok=False))
+        self.assertNotIn("tight", self.cmd("status")["sessions"].values())
+
+    def test_delta_zip_budget_counts_payload_not_unchanged_base_files(self):
+        self.write("parcel/route.py", random.Random(17).randbytes(32000).hex())
+        full = self.export()
+        self.assertGreater(full["zip_bytes"], 16000)
+        self.cmd("mark-sent", full["export_id"])
+        options = ("--type", "delta", "--plan", "-", "--max-zip-bytes", "16000")
+        preview = self.cmd("preview", *options, data=self.plan)
+        self.assertTrue(preview["publishable"])
+        self.assertEqual(preview["source_file_count"], 0)
+        self.assertEqual(preview["snapshot_file_count"], full["snapshot_file_count"])
+        delta = self.cmd("export", *options, "--approve", preview["preview_token"], data=self.plan)
+        self.assertEqual(delta["zip_bytes"], preview["zip_bytes"])
+        self.cmd("verify", delta["zip"], "--base-export-id", full["export_id"])
+
+    def test_credential_filter_accepts_its_own_source_without_allowlisting_tests(self):
+        self.assertIsNone(safe_content((SCRIPTS / "scanner.py").read_bytes()))
+        self.assertIsNone(safe_content(Path(__file__).read_bytes()))
+        self.assertEqual(safe_content(CREDENTIAL_FIXTURE.encode()), "potential embedded credential")
+        secret_name = "BUILD_" + "TOKEN"
+        self.assertEqual(safe_content(f"  {secret_name} = fake-local-value\r\n".encode()),
+                         "potential embedded credential")
+        self.assertIsNone(safe_content(f"{secret_name} = lookup.config(\n    setting\n)\n".encode()))
 
     def test_skill_guidance_is_inlined_without_raw_attachments(self):
         guidance = "Required checks: compare both valid and unknown zones against the approved contract."
@@ -602,7 +690,7 @@ class HandoffTest(unittest.TestCase):
         (references / "zones.md").write_text("Check unknown zones against the carrier contract.\n")
         (references / "other.md").write_text("Unselected material.\n")
         (references / ".env").write_text("PASSWORD=not-for-upload\n")
-        (references / "note.md").write_text("api_key = 'not-for-upload'\n")
+        (references / "note.md").write_text(CREDENTIAL_FIXTURE)
         (references / "diagram.bin").write_bytes(b"\x00\xff")
         installed = self.root / ".agents" / "skills" / "dispatch"
         installed.parent.mkdir(parents=True)
@@ -660,7 +748,7 @@ class HandoffTest(unittest.TestCase):
         self.assertFalse(limited["preview_required"])
         self.assertEqual(limited["skills"], [])
         self.assertEqual(limited["skill_exclusions"][0]["reason"], "file-count budget exceeded")
-        (skill / "SKILL.md").write_text("api_key = 'not-for-upload'\n")
+        (skill / "SKILL.md").write_text(CREDENTIAL_FIXTURE)
         self.assertNotIn("skills", self.metadata(self.cmd("export", *options, data=plan)))
         plan["skills"][0]["references"] = ["../outside.md"]
         self.assertIn("Unsafe relative path", self.cmd("preview", *options, data=plan, ok=False))

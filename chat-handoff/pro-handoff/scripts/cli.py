@@ -127,18 +127,20 @@ def run(args, store):
                 raise HandoffError(f"Unknown session ID {selector}")
             requested = "recovery" if command == "recover" else args.type
             prepared = prepare(store.root, store.is_git, folder, state, plan, limits, requested,
-                               session_name=selector or "default")
-            result = prepared[0]
+                               session_name=selector or "default", approval=getattr(args, "approve", None))
+            result = prepared.summary
             if command == "preview":
                 return result
             if args.approve and args.approve != result["preview_token"]:
                 raise HandoffError("Preview changed. Generate a new preview and confirm its current token.")
             require_publishable(result)
             if result["preview_required"] and not (args.approve or args.yes):
-                scope = "Export with skill attachments" if result["skills"] else "First export"
+                scope = ("Export with skill attachments" if result["skills"] else
+                         "Export with newly selected source paths" if result["new_source_paths"] else "First export")
                 raise HandoffError(f"{scope} requires preview and --approve TOKEN, or explicit --yes")
             if state is None:
-                folder, state = store.select(index, selector, create=True, goal=plan["goal"])
+                folder, state = store.select(index, selector, create=True, goal=plan["goal"],
+                                             new_session_id=prepared.meta["session_id"])
             result = publish(store, folder, state, plan, limits, prepared)
             store.activate(index, state["session_id"])
             return result

@@ -3,7 +3,7 @@
 import stat
 from zipfile import BadZipFile, ZipFile
 
-from common import ID, LABEL, PROTOCOL, HandoffError, fields, digest, parse_json, safe_path
+from common import ID, LABEL, MAX_UNCOMPRESSED_BYTES, PROTOCOL, HandoffError, fields, digest, parse_json, safe_path
 from importer import matches
 from scanner import policy, safe_content
 from selector import required_plan_files, validate_plan
@@ -19,7 +19,7 @@ ENTRIES = {
 RECOVERY_ENTRIES = {"context/STATE.md", "context/EVIDENCE_ARCHIVE.json"}
 
 
-def verify(zip_path, *, base=None, base_export_id=None, max_bytes=128 * 1024 * 1024):
+def verify(zip_path, *, base=None, base_export_id=None, max_bytes=MAX_UNCOMPRESSED_BYTES):
     try:
         with ZipFile(zip_path) as archive:
             entries = archive.infolist()
